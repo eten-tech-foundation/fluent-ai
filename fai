@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# Fluent AI CLI - Cross-platform wrapper for Docker/Podman
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Detect container runtime (prefer docker, fallback to podman)
+if command -v docker &> /dev/null; then
+    RUNTIME="docker"
+    COMPOSE="docker compose"
+elif command -v podman &> /dev/null; then
+    RUNTIME="podman"
+    if command -v podman-compose &> /dev/null; then
+        COMPOSE="podman-compose"
+    else
+        COMPOSE="podman compose"
+    fi
+else
+    echo "Error: Neither docker nor podman found. Please install one."
+    exit 1
+fi
+
+# Default environment
+ENV="${FAI_ENV:-dev}"
+LOCAL_DB=false
+
+# Parse global options
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --prod)
+            ENV="prod"
+            shift
+            ;;
+        --dev)
+            ENV="dev"
+            shift
+            ;;
+        --local-db)
+            LOCAL_DB=true
+            shift
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+# Set compose files based on environment
+if [[ "$ENV" == "prod" ]]; then
+    COMPOSE_FILES="-f docker-compose.base.yml -f docker-compose.prod.yml"
+    ENV_FILE=".env.prod"
+else
+    COMPOSE_FILES="-f docker-compose.base.yml -f docker-compose.dev.yml"
+    ENV_FILE=".env.dev"
+fi
+
+# Add profile for local database if requested
+PROFILE_ARG=""
+if [[ "$LOCAL_DB" == true ]]; then
+    PROFILE_ARG="--profile local-db"
+fi
+
+# Use env file if it exists
+ENV_FILE_ARG=""
+if [[ -f "$ENV_FILE" ]]; then
+    ENV_FILE_ARG="--env-file $ENV_FILE"
+fi
+
+# Full compose command
+COMPOSE_CMD="$COMPOSE $COMPOSE_FILES $ENV_FILE_ARG $PROFILE_ARG"
+
+usage() {
+    echo "Fluent AI CLI"
+    echo ""
+    echo "Usage: fai [options] <command>"
+    echo ""
+    echo "Options:"
+    echo "  --dev         Use development environment (default)"
+    echo "  --prod        Use production environment"
+    echo "  --local-db    Include local PostgreSQL container"
+    echo ""
+    echo "Commands:"
+    echo "  start         Start the application (builds if needed)"
+    echo "  stop          Stop the application"
+    echo "  restart       Restart the application"
+    echo "  logs          View application logs (follow mode)"
+    echo "  build         Build/rebuild the application image"
+    echo "  status        Show running containers"
+    echo "  shell         Open a shell in the app container"
+    echo "  clean         Stop and remove containers, volumes, and images"
+    echo ""
+    echo "Examples:"
+    echo "  fai start                    # Dev mode with cloud DB"
+    echo "  fai --local-db start         # Dev mode with local PostgreSQL"
+    echo "  fai --prod start             # Production mode"
+    echo ""
+    echo "Environment: $ENV | Local DB: $LOCAL_DB | Runtime: $RUNTIME"
+}
+
+case "${1:-}" in
+    start)
+        echo "Starting Fluent AI ($ENV)..."
+        $COMPOSE_CMD up -d --build
+        echo "Fluent AI is running at http://localhost:${PORT:-8200}"
+        echo "API docs available at http://localhost:${PORT:-8200}/docs"
+        ;;
+    stop)
+        echo "Stopping Fluent AI..."
+        $COMPOSE_CMD down
+        ;;
+    restart)
+        echo "Restarting Fluent AI..."
+        $COMPOSE_CMD restart
+        ;;
+    logs)
+        $COMPOSE_CMD logs -f
+        ;;
+    build)
+        echo "Building Fluent AI ($ENV)..."
+        $COMPOSE_CMD build
+        ;;
+    status)
+        $COMPOSE_CMD ps
+        ;;
+    shell)
+        $COMPOSE_CMD exec app /bin/bash || $COMPOSE_CMD exec app /bin/sh
+        ;;
+    clean)
+        echo "Cleaning up Fluent AI containers, volumes, and images..."
+        $COMPOSE_CMD down -v --rmi local
+        ;;
+    *)
+        usage
+        ;;
+esac

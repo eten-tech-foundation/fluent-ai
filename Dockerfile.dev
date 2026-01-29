@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1
+
+FROM python:3.14-slim
+
+# Prevent Python from writing bytecode and enable unbuffered output
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Install uv for fast dependency management
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Copy dependency files
+COPY pyproject.toml uv.lock ./
+
+# Install all dependencies including dev
+RUN uv sync --frozen --no-install-project
+
+# Source code is mounted as a volume for hot-reload
+# No COPY of src/ here - it's bind-mounted in docker-compose.dev.yml
+
+EXPOSE 8200
+
+# Development server with hot-reload
+CMD ["uv", "run", "fastapi", "dev", "src/app/main.py", "--host", "0.0.0.0", "--port", "8200"]

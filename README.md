@@ -2,36 +2,118 @@
 
 A FastAPI application built with uv for AI services that power the Fluent Ecosystem.
 
-## Installation
+## Quick Start (Docker/Podman)
 
+The simplest way to run Fluent AI—no local dependencies required except Docker or Podman.
+
+The API runs on **port 8200** by default: http://localhost:8200
+
+### Prerequisites
+
+**macOS/Linux:** Make the CLI script executable (one-time setup):
 ```bash
-# Install dependencies
-uv sync
-
-# Activate virtual environment
-source .venv/bin/activate
+chmod +x fai
 ```
 
-## Running the Application
+**Windows:** No additional setup required—`fai.bat` is ready to use.
 
+### Development Mode
+
+**macOS/Linux:**
 ```bash
-# Development server
-uv run fastapi dev src/app/main.py --host 0.0.0.0
+# Setup: Copy and configure environment
+cp .env.dev.example .env.dev
 
-# Development server with custom port
-uv run fastapi dev src/app/main.py --host 0.0.0.0 --port 8000
+# Option 1: Dev with cloud database
+./fai start
 
-# Production server
-uv run fastapi run src/app/main.py --host 0.0.0.0
+# Option 2: Dev with local PostgreSQL container
+./fai --local-db start
 ```
+
+**Windows (Command Prompt or PowerShell):**
+```cmd
+REM Setup: Copy and configure environment
+copy .env.dev.example .env.dev
+
+REM Option 1: Dev with cloud database
+fai start
+
+REM Option 2: Dev with local PostgreSQL container
+fai --local-db start
+```
+
+### Production Mode
+
+**macOS/Linux:**
+```bash
+# Setup: Copy and configure environment
+cp .env.prod.example .env.prod
+
+# Start production
+./fai --prod start
+```
+
+**Windows:**
+```cmd
+copy .env.prod.example .env.prod
+fai --prod start
+```
+
+### CLI Reference
+
+| Command | Description |
+|---------|-------------|
+| `fai start` | Start the application (builds if needed) |
+| `fai stop` | Stop the application |
+| `fai restart` | Restart the application |
+| `fai logs` | View application logs |
+| `fai status` | Show running containers |
+| `fai shell` | Open a shell in the app container |
+| `fai build` | Build/rebuild images |
+| `fai clean` | Remove containers, volumes, and images |
+
+### CLI Options
+
+| Option | Description |
+|--------|-------------|
+| `--dev` | Use development environment (default) |
+| `--prod` | Use production environment |
+| `--local-db` | Include local PostgreSQL container |
+
+### Examples
+
+**macOS/Linux:**
+```bash
+./fai start                  # Dev mode, cloud DB
+./fai --local-db start       # Dev mode, local PostgreSQL
+./fai --prod start           # Production mode
+./fai --local-db logs        # View logs with local DB running
+```
+
+**Windows:**
+```cmd
+fai start                    :: Dev mode, cloud DB
+fai --local-db start         :: Dev mode, local PostgreSQL
+fai --prod start             :: Production mode
+fai --local-db logs          :: View logs with local DB running
+```
+
+### Database Options
+
+**Cloud Database (default):** Set `DATABASE_URL` in `.env.dev` to your cloud PostgreSQL instance.
+
+**Local PostgreSQL:** Use `--local-db` flag to spin up a containerized PostgreSQL alongside the app.
+
+---
 
 ## API Documentation
 
 Once the server is running, you can access:
 
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **OpenAPI Schema**: http://localhost:8000/openapi.json
+- **Swagger UI**: http://localhost:8200/docs
+- **ReDoc**: http://localhost:8200/redoc
+- **OpenAPI Schema**: http://localhost:8200/openapi.json
 
 ## Project Structure
 
@@ -77,3 +159,17 @@ This project uses:
 - **FastAPI** - Modern, fast web framework for building APIs
 - **uv** - Python package manager
 - **Pydantic** - Data validation using Python type annotations
+
+## TODO:
+- [x] Add environment configuration management
+- [ ] Set up PostgreSQL database connection with SQLAlchemy/asyncpg
+- [ ] Add Alembic for database migrations
+- [ ] Implement structured logging with proper log levels
+- [ ] Add HTTP client for external AI service integrations
+- [ ] Create error handling and custom exception classes
+- [ ] Add request/response models and validation schemas
+- [ ] Implement authentication/authorization middleware
+- [ ] Add health checks for database and external services
+- [ ] Set up testing framework with pytest and test database
+- [x] Add Docker configuration for development and production
+- [ ] Implement rate limiting and request throttling
