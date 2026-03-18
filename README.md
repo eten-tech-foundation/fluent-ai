@@ -162,7 +162,7 @@ This project uses:
 
 ## TODO:
 - [x] Add environment configuration management
-- [ ] Set up PostgreSQL database connection with SQLModel
+- [ ] Set up PostgreSQL database connection with SQLAlchemy or SQLModel - investigate the merits of using SQLModel.
 - [ ] Add Alembic for database migrations
 - [ ] Implement structured logging with proper log levels
 - [ ] Add HTTP client for external AI service integrations
