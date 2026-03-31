@@ -17,10 +17,10 @@ COPY pyproject.toml uv.lock ./
 # Install all dependencies including dev
 RUN uv sync --frozen --no-install-project
 
-# Source code is mounted as a volume for hot-reload
-# No COPY of src/ here - it's bind-mounted in docker-compose.dev.yml
+# Copy entrypoint script (source code is bind-mounted for hot-reload)
+COPY docker-entrypoint.sh ./
 
 EXPOSE 8200
 
-# Development server with hot-reload
-CMD ["uv", "run", "fastapi", "dev", "src/app/main.py", "--host", "0.0.0.0", "--port", "8200"]
+# Entrypoint handles first-run migrations/seeds, then starts dev server
+CMD ["sh", "docker-entrypoint.sh"]

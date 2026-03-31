@@ -2,108 +2,57 @@
 
 A FastAPI application built with uv for AI services that power the Fluent Ecosystem.
 
-## Quick Start (Docker/Podman)
-
-The simplest way to run Fluent AI—no local dependencies required except Docker or Podman.
-
-The API runs on **port 8200** by default: http://localhost:8200
+## Local Development with Containers
 
 ### Prerequisites
 
-**macOS/Linux:** Make the CLI script executable (one-time setup):
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) **or** [Podman](https://podman.io/) with `podman-compose`
+- (Optional) Python/uv on host for direct development
+
+### Quick Start
+
 ```bash
-chmod +x fai
+./fai.sh setup          # Create .env from .env.example
+# Fill in API keys and other credentials in .env
+./fai.sh up             # Start AI service + PostgreSQL containers
+curl http://localhost:8200/health
 ```
 
-**Windows:** No additional setup required—`fai.bat` is ready to use.
+Windows users: use `fai.ps1` with the same commands.
 
-### Development Mode
-
-**macOS/Linux:**
-```bash
-# Setup: Copy and configure environment
-cp .env.dev.example .env.dev
-
-# Option 1: Dev with cloud database
-./fai start
-
-# Option 2: Dev with local PostgreSQL container
-./fai --local-db start
-```
-
-**Windows (Command Prompt or PowerShell):**
-```cmd
-REM Setup: Copy and configure environment
-copy .env.dev.example .env.dev
-
-REM Option 1: Dev with cloud database
-fai start
-
-REM Option 2: Dev with local PostgreSQL container
-fai --local-db start
-```
-
-### Production Mode
-
-**macOS/Linux:**
-```bash
-# Setup: Copy and configure environment
-cp .env.prod.example .env.prod
-
-# Start production
-./fai --prod start
-```
-
-**Windows:**
-```cmd
-copy .env.prod.example .env.prod
-fai --prod start
-```
-
-### CLI Reference
+### All Commands
 
 | Command | Description |
-|---------|-------------|
-| `fai start` | Start the application (builds if needed) |
-| `fai stop` | Stop the application |
-| `fai restart` | Restart the application |
-| `fai logs` | View application logs |
-| `fai status` | Show running containers |
-| `fai shell` | Open a shell in the app container |
-| `fai build` | Build/rebuild images |
-| `fai clean` | Remove containers, volumes, and images |
+|---|---|
+| `./fai.sh up` | Build and start containers in detached mode |
+| `./fai.sh down` | Stop and remove containers |
+| `./fai.sh restart` | Restart containers |
+| `./fai.sh logs [service]` | Tail container logs (all or specific service) |
+| `./fai.sh status` | Show container status |
+| `./fai.sh db:migrate` | Run AI schema migrations |
+| `./fai.sh db:seed` | Seed AI tables |
+| `./fai.sh db:psql` | Open psql session |
+| `./fai.sh shell [service]` | Shell into a container (`ai` default, `db` opens psql) |
+| `./fai.sh test` | Run pytest test suite inside the container |
+| `./fai.sh run <command>` | Run a uv command inside the AI container |
+| `./fai.sh clean` | Remove containers **and** volumes (full DB reset) |
+| `./fai.sh build` | Rebuild containers without cache |
+| `./fai.sh setup` | Copy `.env.example` → `.env` if missing |
 
-### CLI Options
+### Architecture Notes
 
-| Option | Description |
-|--------|-------------|
-| `--dev` | Use development environment (default) |
-| `--prod` | Use production environment |
-| `--local-db` | Include local PostgreSQL container |
+- **Bind mount**: Source code (`src/`) is mounted into the container so FastAPI dev mode picks up changes instantly.
+- **Shared database**: Uses the shared `fluent` database with schema isolation (`ai` schema). The `db/init/` scripts set up all roles and privileges.
+- **DATABASE_URL override**: `.env` keeps `localhost` for host tools (psql). `compose.yaml` overrides it to `db` for container networking.
+- **First-run init**: `docker-entrypoint.sh` uses a sentinel file (`.db-initialized`) to run migrations and seeds on first startup only.
+- **Standalone vs ecosystem**: The standalone `compose.yaml` includes its own Postgres. When running via `fluent-platform`, the shared database is used instead.
 
-### Examples
+### Production Build
 
-**macOS/Linux:**
 ```bash
-./fai start                  # Dev mode, cloud DB
-./fai --local-db start       # Dev mode, local PostgreSQL
-./fai --prod start           # Production mode
-./fai --local-db logs        # View logs with local DB running
+docker build -t fluent-ai .
+docker run -p 8200:8200 --env-file .env fluent-ai
 ```
-
-**Windows:**
-```cmd
-fai start                    :: Dev mode, cloud DB
-fai --local-db start         :: Dev mode, local PostgreSQL
-fai --prod start             :: Production mode
-fai --local-db logs          :: View logs with local DB running
-```
-
-### Database Options
-
-**Cloud Database (default):** Set `DATABASE_URL` in `.env.dev` to your cloud PostgreSQL instance.
-
-**Local PostgreSQL:** Use `--local-db` flag to spin up a containerized PostgreSQL alongside the app.
 
 ---
 
