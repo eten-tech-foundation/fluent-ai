@@ -1,13 +1,13 @@
 #!/usr/bin/env sh
 set -e
 
-if [ ! -f .db-initialized ]; then
+if [ ! -f /tmp/.db-initialized ]; then
   echo "First run detected — running migrations and seeds..."
   # TODO: Add migration command when ai schema migrations are set up
   # e.g.: uv run alembic upgrade head
   # TODO: Add seed command when ai seeds are created
   # e.g.: uv run python src/db/seeds/seed.py
-  touch .db-initialized
+  touch /tmp/.db-initialized
   echo "Database initialized."
 fi
 

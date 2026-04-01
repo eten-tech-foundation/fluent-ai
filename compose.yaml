@@ -23,20 +23,30 @@ services:
     ports:
       - "${PORT:-8200}:8200"
     volumes:
-      - ./src:/app/src:cached
+      - ./src:/app/src:ro
       - ./pyproject.toml:/app/pyproject.toml:ro
       - ./uv.lock:/app/uv.lock:ro
+      - ./docker-entrypoint.sh:/app/docker-entrypoint.sh:ro
     env_file: .env
     environment:
       DATABASE_URL: "postgresql+asyncpg://postgres:postgres@db:5432/fluent"
       ENVIRONMENT: development
       DEBUG: "true"
-    command: sh docker-entrypoint.sh
+      UV_CACHE_DIR: /app/.cache/uv
+    user: "1001:1001"
+    read_only: true
+    tmpfs:
+      - /tmp:nosuid,size=64m
+      - /app/.cache:noexec,nosuid,size=128m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8200/health')"]
+      test: ["CMD", "curl", "-f", "http://localhost:8200/health"]
       interval: 10s
       timeout: 5s
       retries: 5
