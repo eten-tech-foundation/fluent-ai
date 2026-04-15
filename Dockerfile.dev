@@ -2,9 +2,19 @@
 
 FROM python:3.14-slim
 
+# Install dumb-init for proper signal handling and curl for healthchecks
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends dumb-init curl && \
+    rm -rf /var/lib/apt/lists/*
+
 # Prevent Python from writing bytecode and enable unbuffered output
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+
+# Create non-root user with limited permissions
+RUN groupadd -g 1001 python && \
+    useradd -u 1001 -g python -s /bin/false python
 
 WORKDIR /app
 
@@ -17,10 +27,20 @@ COPY pyproject.toml uv.lock ./
 # Install all dependencies including dev
 RUN uv sync --frozen --no-install-project
 
-# Source code is mounted as a volume for hot-reload
-# No COPY of src/ here - it's bind-mounted in docker-compose.dev.yml
+# Copy entrypoint script (source code is bind-mounted for hot-reload)
+COPY --chown=python:python docker-entrypoint.sh ./
+
+# Set ownership for app directory
+RUN chown -R python:python /app
+
+# Switch to non-root user
+USER python
 
 EXPOSE 8200
 
-# Development server with hot-reload
-CMD ["uv", "run", "fastapi", "dev", "src/app/main.py", "--host", "0.0.0.0", "--port", "8200"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8200/health || exit 1
+
+# Use dumb-init for proper signal handling
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["sh", "docker-entrypoint.sh"]
