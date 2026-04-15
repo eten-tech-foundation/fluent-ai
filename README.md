@@ -1,124 +1,154 @@
-# Fluent AI API
+# Fluent AI
 
-A FastAPI application built with uv for AI services that power the Fluent Ecosystem.
+Python 3.14 FastAPI service providing AI capabilities for the Fluent Ecosystem.
+Managed with `uv`, containerized with Docker Compose (Docker) or native Podman pods (Podman).
 
-## Local Development with Containers
+## Operating Modes
+
+| Mode | Command | DB port | When to use |
+|---|---|---|---|
+| **Standalone** | `./fai.sh up` | 5433 | Working on this service in isolation |
+| **Service-only** | `./fai.sh up ai` | — (external) | Platform's DB is already running |
+| **Ecosystem** | `./fluent.sh up` (fluent-platform) | 5432 | Full integration work |
+
+To connect a standalone service to the platform DB, set `DATABASE_URL` in `.env` to
+`postgresql+asyncpg://postgres:postgres@localhost:5432/fluent` and run `./fai.sh up ai`.
+
+## Quick Start
 
 ### Prerequisites
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) **or** [Podman](https://podman.io/) with `podman-compose`
-- (Optional) Python/uv on host for direct development
+- [Podman](https://podman.io/) **or** [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- (Optional) Python 3.14 + `uv` for local development outside containers
 
-### Quick Start
+### Setup
 
 ```bash
-./fai.sh setup          # Create .env from .env.example
-# Fill in API keys and other credentials in .env
-./fai.sh up             # Start AI service + PostgreSQL containers
+./fai.sh setup          # Copy .env.example → .env
+# Fill in API keys and credentials in .env
+./fai.sh up             # Start DB on 5433 + AI service on 8200
 curl http://localhost:8200/health
 ```
 
-Windows users: use `fai.ps1` with the same commands.
+Windows: use `fai.ps1` with the same commands.
 
-### All Commands
+## Commands
+
+### Container management
 
 | Command | Description |
 |---|---|
-| `./fai.sh up` | Build and start containers in detached mode |
-| `./fai.sh down` | Stop and remove containers |
-| `./fai.sh restart` | Restart containers |
-| `./fai.sh logs [service]` | Tail container logs (all or specific service) |
-| `./fai.sh status` | Show container status |
-| `./fai.sh db:migrate` | Run AI schema migrations |
-| `./fai.sh db:seed` | Seed AI tables |
-| `./fai.sh db:psql` | Open psql session |
-| `./fai.sh shell [service]` | Shell into a container (`ai` default, `db` opens psql) |
-| `./fai.sh test` | Run pytest test suite inside the container |
-| `./fai.sh run <command>` | Run a uv command inside the AI container |
-| `./fai.sh clean` | Remove containers **and** volumes (full DB reset) |
-| `./fai.sh build` | Rebuild containers without cache |
+| `./fai.sh up [service]` | Start services — `db`, `ai`, or all (default) |
+| `./fai.sh down [service]` | Stop and remove services (default: all) |
+| `./fai.sh restart [service]` | Restart services (default: all) |
+| `./fai.sh logs [service]` | Tail logs — `db`, `ai`, or all (default) |
+| `./fai.sh status` | Show pod/container status (all states) |
+| `./fai.sh shell [service]` | Shell into container (`ai` default; `db` opens psql) |
+| `./fai.sh build [service]` | Rebuild images without cache |
+| `./fai.sh clean [service]` | Remove containers and volumes (default: all) |
+| `./fai.sh fresh` | Remove containers, volumes, and image |
 | `./fai.sh setup` | Copy `.env.example` → `.env` if missing |
 
-### Architecture Notes
+### Development (runs inside AI container)
 
-- **Bind mount**: Source code (`src/`) is mounted into the container so FastAPI dev mode picks up changes instantly.
-- **Shared database**: Uses the shared `fluent` database with schema isolation (`ai` schema). The `db/init/` scripts set up all roles and privileges.
-- **DATABASE_URL override**: `.env` keeps `localhost` for host tools (psql). `compose.yaml` overrides it to `db` for container networking.
-- **First-run init**: `docker-entrypoint.sh` uses a sentinel file (`.db-initialized`) to run migrations and seeds on first startup only.
-- **Standalone vs ecosystem**: The standalone `compose.yaml` includes its own Postgres. When running via `fluent-platform`, the shared database is used instead.
+| Command | Description |
+|---|---|
+| `./fai.sh test` | Run pytest test suite |
+| `./fai.sh lint` | Run ruff linter |
+| `./fai.sh lint:fix` | Run ruff linter with auto-fix |
+| `./fai.sh format` | Format code with ruff |
+| `./fai.sh format:check` | Check formatting without writing |
+| `./fai.sh typecheck` | Run mypy type checking |
+| `./fai.sh run <cmd>` | Run any `uv run` command in the AI container |
 
-### Production Build
+### Database
+
+| Command | Description |
+|---|---|
+| `./fai.sh db:psql` | Open interactive psql session |
+| `./fai.sh db:migrate` | Run schema migrations (TODO) |
+| `./fai.sh db:seed` | Run seed data (TODO) |
+
+## Architecture
+
+### Container layout
+
+**Podman (native pod):**
+```
+Pod: fluent-ai
+  fluent-ai-db   postgres:16-alpine   host:5433 → pod:5432
+  fluent-ai-ai   fluent-ai (local)    host:8200 → pod:8200
+Volume: fluent-ai-pgdata
+```
+
+**Docker Compose:**
+```
+db   postgres:16-alpine   host:5433 → container:5432
+ai   fluent-ai (built)    host:8200 → container:8200
+```
+
+### Key design decisions
+
+- **Source bind-mount** — `src/` is mounted into the container so FastAPI dev mode
+  hot-reloads on every file save without a rebuild.
+- **Standalone DB on 5433** — avoids port conflict with the platform orchestrator's
+  shared DB on 5432. Override with `DB_PORT=5432` if needed.
+- **Read-only container** — AI container runs with `--read-only`, `--cap-drop ALL`, and
+  `--user 1001:1001`. Writable scratch space is provided via `--tmpfs /tmp` and
+  `--tmpfs /app/.cache`.
+- **First-run init** — `docker-entrypoint.sh` checks `/tmp/.db-initialized` on each
+  start. On first run it executes pending migrations/seeds then starts the server. The
+  sentinel resets on restart (intentional in dev).
+
+## Project Structure
+
+```
+src/app/
+├── main.py              # FastAPI app, router mounting
+├── config.py            # Pydantic BaseSettings + cached getter
+├── dependencies.py      # Shared dependency functions
+├── core/
+│   └── config.py        # Core configuration
+├── routers/
+│   ├── items.py         # Item routes
+│   └── users.py         # User routes
+└── internal/
+    └── admin.py         # Admin routes
+
+db/init/                 # SQL scripts run on first DB start
+Dockerfile               # Production multi-stage build
+Dockerfile.dev           # Development build
+compose.yaml             # Docker Compose (standalone dev)
+docker-entrypoint.sh     # Container startup script
+fai.sh / fai.ps1         # Helper scripts
+```
+
+## API
+
+Once running, visit:
+
+- **Swagger UI**: http://localhost:8200/docs
+- **ReDoc**: http://localhost:8200/redoc
+- **OpenAPI JSON**: http://localhost:8200/openapi.json
+
+### Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/` | Welcome message |
+| `GET` | `/health` | Health check |
+| `GET` | `/items/` | List items (requires `X-Token`) |
+| `GET` | `/items/{item_id}` | Get item |
+| `POST` | `/items/` | Create item |
+| `GET` | `/users/` | List users |
+| `GET` | `/users/{username}` | Get user |
+| `POST` | `/users/` | Create user |
+| `GET` | `/admin/stats` | Admin stats |
+| `GET` | `/admin/health` | Admin health |
+
+## Production Build
 
 ```bash
 docker build -t fluent-ai .
 docker run -p 8200:8200 --env-file .env fluent-ai
 ```
-
----
-
-## API Documentation
-
-Once the server is running, you can access:
-
-- **Swagger UI**: http://localhost:8200/docs
-- **ReDoc**: http://localhost:8200/redoc
-- **OpenAPI Schema**: http://localhost:8200/openapi.json
-
-## Project Structure
-
-```
-src/
-├── app/
-│   ├── __init__.py
-│   ├── main.py              # Main FastAPI application
-│   ├── dependencies.py      # Common dependencies
-│   ├── internal/
-│   │   ├── __init__.py
-│   │   └── admin.py         # Admin routes
-│   └── routers/
-│       ├── __init__.py
-│       ├── items.py         # Item management routes
-│       └── users.py         # User management routes
-└── tests/                   # Test files
-```
-
-## Available Endpoints
-
-### Root
-- `GET /` - Welcome message
-- `GET /health` - Health check
-
-### Items (requires X-Token header)
-- `GET /items/` - List all items
-- `GET /items/{item_id}` - Get specific item
-- `POST /items/` - Create new item
-
-### Users
-- `GET /users/` - List all users
-- `GET /users/{username}` - Get specific user
-- `POST /users/` - Create new user
-
-### Admin
-- `GET /admin/stats` - Admin statistics
-- `GET /admin/health` - Admin health check
-
-## Development
-
-This project uses:
-- **FastAPI** - Modern, fast web framework for building APIs
-- **uv** - Python package manager
-- **Pydantic** - Data validation using Python type annotations
-
-## TODO:
-- [x] Add environment configuration management
-- [ ] Set up PostgreSQL database connection with SQLAlchemy or SQLModel - investigate the merits of using SQLModel.
-- [ ] Add Alembic for database migrations
-- [ ] Implement structured logging with proper log levels
-- [ ] Add HTTP client for external AI service integrations
-- [ ] Create error handling and custom exception classes
-- [ ] Add request/response models and validation schemas
-- [ ] Implement authentication/authorization middleware
-- [ ] Add health checks for database and external services
-- [ ] Set up testing framework with pytest and test database
-- [x] Add Docker configuration for development and production
-- [ ] Implement rate limiting and request throttling
