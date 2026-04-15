@@ -173,7 +173,7 @@ function Start-AiContainer {
         "-v", "${ScriptDir}\uv.lock:/app/uv.lock:ro",
         "-v", "${ScriptDir}\docker-entrypoint.sh:/app/docker-entrypoint.sh:ro",
         "--tmpfs", "/tmp:nosuid,size=64m",
-        "--tmpfs", "/app/.cache:noexec,nosuid,size=128m,uid=1001,gid=1001",
+        "--tmpfs", "/app/.cache:noexec,nosuid,size=128m",
         "--security-opt", "no-new-privileges:true",
         "--cap-drop", "ALL",
         "--user", "1001:1001",
