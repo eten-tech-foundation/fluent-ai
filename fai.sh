@@ -76,7 +76,7 @@ create_volumes() {
 
 wait_for_db() {
   echo_running "Waiting for database to be ready..."
-  while ! $RUNTIME exec fluent-ai_db pg_isready -U postgres -d fluent 2>/dev/null; do
+  while ! $RUNTIME exec fluent-ai-db pg_isready -U postgres -d fluent 2>/dev/null; do
     sleep 2
   done
   echo_success "Database is ready"
@@ -85,13 +85,13 @@ wait_for_db() {
 # ── Podman container start functions ──────────────────────────────────────────
 
 start_db_container() {
-  if $RUNTIME container exists fluent-ai_db 2>/dev/null; then
+  if $RUNTIME container exists fluent-ai-db 2>/dev/null; then
     echo_success "Database container already exists"
     return
   fi
   echo_running "Starting database container..."
   $RUNTIME run -d \
-    --name fluent-ai_db \
+    --name fluent-ai-db \
     --pod "$POD_NAME" \
     -e POSTGRES_USER=postgres \
     -e POSTGRES_PASSWORD=postgres \
@@ -107,7 +107,7 @@ start_db_container() {
 }
 
 start_ai_container() {
-  if $RUNTIME container exists fluent-ai_ai 2>/dev/null; then
+  if $RUNTIME container exists fluent-ai-ai 2>/dev/null; then
     echo_success "AI container already exists"
     return
   fi
@@ -127,7 +127,7 @@ start_ai_container() {
 
   echo_running "Starting AI container..."
   $RUNTIME run -d \
-    --name fluent-ai_ai \
+    --name fluent-ai-ai \
     --pod "$POD_NAME" \
     "${env_flags[@]}" \
     -v "$SCRIPT_DIR/src:/app/src:ro" \
@@ -182,7 +182,7 @@ podman_down() {
     echo_success "All services stopped."
   else
     echo_running "Stopping $service..."
-    $RUNTIME rm -f "fluent-ai_$service" 2>/dev/null || true
+    $RUNTIME rm -f "fluent-ai-$service" 2>/dev/null || true
     echo_success "$service stopped."
   fi
 }
@@ -194,7 +194,7 @@ podman_restart() {
     podman_up all
   else
     echo_running "Restarting $service..."
-    $RUNTIME rm -f "fluent-ai_$service" 2>/dev/null || true
+    $RUNTIME rm -f "fluent-ai-$service" 2>/dev/null || true
     case "$service" in
       db) start_db_container ;;
       ai) start_ai_container ;;
@@ -209,7 +209,7 @@ podman_logs() {
   if [ -z "$service" ]; then
     $RUNTIME pod logs -f "$POD_NAME"
   else
-    $RUNTIME logs -f "fluent-ai_$service"
+    $RUNTIME logs -f "fluent-ai-$service"
   fi
 }
 
@@ -225,18 +225,18 @@ podman_status() {
 podman_shell() {
   local service="${1:-ai}"
   if [ "$service" = "db" ]; then
-    $RUNTIME exec -it fluent-ai_db psql -U postgres -d fluent
+    $RUNTIME exec -it fluent-ai-db psql -U postgres -d fluent
   else
-    $RUNTIME exec -it "fluent-ai_$service" sh
+    $RUNTIME exec -it "fluent-ai-$service" sh
   fi
 }
 
 podman_exec_ai() {
-  if ! $RUNTIME ps --format "{{.Names}}" 2>/dev/null | grep -qx "fluent-ai_ai"; then
+  if ! $RUNTIME ps --format "{{.Names}}" 2>/dev/null | grep -qx "fluent-ai-ai"; then
     echo_error "AI container is not running. Run './fai.sh up ai' first."
     exit 1
   fi
-  $RUNTIME exec fluent-ai_ai "$@"
+  $RUNTIME exec fluent-ai-ai "$@"
 }
 
 podman_clean() {
@@ -246,7 +246,7 @@ podman_clean() {
     $RUNTIME volume rm fluent-ai-pgdata 2>/dev/null || true
     echo_success "All containers and volumes removed."
   else
-    $RUNTIME rm -f "fluent-ai_$service" 2>/dev/null || true
+    $RUNTIME rm -f "fluent-ai-$service" 2>/dev/null || true
     echo_success "$service container removed."
   fi
 }
@@ -271,7 +271,7 @@ podman_build() {
 }
 
 podman_db_psql() {
-  $RUNTIME exec -it fluent-ai_db psql -U postgres -d fluent
+  $RUNTIME exec -it fluent-ai-db psql -U postgres -d fluent
 }
 
 # ── Docker Compose command functions ──────────────────────────────────────────

@@ -115,7 +115,7 @@ function Create-Volumes {
 function Wait-ForDb {
     Write-Running "Waiting for database to be ready..."
     while ($true) {
-        & $Runtime exec fluent-ai_db pg_isready -U postgres -d fluent 2>$null
+        & $Runtime exec fluent-ai-db pg_isready -U postgres -d fluent 2>$null
         if ($LASTEXITCODE -eq 0) { break }
         Start-Sleep -Seconds 2
     }
@@ -123,13 +123,13 @@ function Wait-ForDb {
 }
 
 function Start-DbContainer {
-    if (Container-Exists "fluent-ai_db") {
+    if (Container-Exists "fluent-ai-db") {
         Write-Success "Database container already exists"
         return
     }
     Write-Running "Starting database container..."
     & $Runtime run -d `
-        --name fluent-ai_db `
+        --name fluent-ai-db `
         --pod $PodName `
         -e POSTGRES_USER=postgres `
         -e POSTGRES_PASSWORD=postgres `
@@ -145,7 +145,7 @@ function Start-DbContainer {
 }
 
 function Start-AiContainer {
-    if (Container-Exists "fluent-ai_ai") {
+    if (Container-Exists "fluent-ai-ai") {
         Write-Success "AI container already exists"
         return
     }
@@ -165,7 +165,7 @@ function Start-AiContainer {
     Write-Running "Starting AI container..."
     $runArgs = @(
         "run", "-d",
-        "--name", "fluent-ai_ai",
+        "--name", "fluent-ai-ai",
         "--pod", $PodName
     ) + $envFlags + @(
         "-v", "${ScriptDir}\src:/app/src:ro",
@@ -220,7 +220,7 @@ function Podman-Down([string]$svc = "all") {
         Write-Success "All services stopped."
     } else {
         Write-Running "Stopping $svc..."
-        & $Runtime rm -f "fluent-ai_$svc" 2>$null
+        & $Runtime rm -f "fluent-ai-$svc" 2>$null
         Write-Success "$svc stopped."
     }
 }
@@ -231,7 +231,7 @@ function Podman-Restart([string]$svc = "all") {
         Podman-Up "all"
     } else {
         Write-Running "Restarting $svc..."
-        & $Runtime rm -f "fluent-ai_$svc" 2>$null
+        & $Runtime rm -f "fluent-ai-$svc" 2>$null
         switch ($svc) {
             "db"  { Start-DbContainer }
             "ai"  { Start-AiContainer }
@@ -242,11 +242,11 @@ function Podman-Restart([string]$svc = "all") {
 }
 
 function Podman-ExecAi([string[]]$cmdArgs) {
-    if (-not (Container-Running "fluent-ai_ai")) {
+    if (-not (Container-Running "fluent-ai-ai")) {
         Write-Err "AI container is not running. Run '.\fai.ps1 up ai' first."
         exit 1
     }
-    & $Runtime exec fluent-ai_ai @cmdArgs
+    & $Runtime exec fluent-ai-ai @cmdArgs
 }
 
 function Podman-Clean([string]$svc = "all") {
@@ -255,7 +255,7 @@ function Podman-Clean([string]$svc = "all") {
         & $Runtime volume rm fluent-ai-pgdata 2>$null
         Write-Success "All containers and volumes removed."
     } else {
-        & $Runtime rm -f "fluent-ai_$svc" 2>$null
+        & $Runtime rm -f "fluent-ai-$svc" 2>$null
         Write-Success "$svc container removed."
     }
 }
@@ -382,7 +382,7 @@ switch ($Command) {
     "logs" {
         if ($RuntimeMode -eq "podman-pod") {
             if ($svcArg) {
-                & $Runtime logs -f "fluent-ai_$svcArg"
+                & $Runtime logs -f "fluent-ai-$svcArg"
             } else {
                 & $Runtime pod logs -f $PodName
             }
@@ -410,9 +410,9 @@ switch ($Command) {
         $target = if ($svcArg) { $svcArg } else { "ai" }
         if ($RuntimeMode -eq "podman-pod") {
             if ($target -eq "db") {
-                & $Runtime exec -it fluent-ai_db psql -U postgres -d fluent
+                & $Runtime exec -it fluent-ai-db psql -U postgres -d fluent
             } else {
-                & $Runtime exec -it "fluent-ai_$target" sh
+                & $Runtime exec -it "fluent-ai-$target" sh
             }
         } else {
             if ($target -eq "db") {
@@ -445,7 +445,7 @@ switch ($Command) {
     }
     "db:psql" {
         if ($RuntimeMode -eq "podman-pod") {
-            & $Runtime exec -it fluent-ai_db psql -U postgres -d fluent
+            & $Runtime exec -it fluent-ai-db psql -U postgres -d fluent
         } else {
             Invoke-Compose @("exec", "db", "psql", "-U", "postgres", "-d", "fluent")
         }
