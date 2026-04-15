@@ -209,7 +209,9 @@ podman_logs() {
   if [ -z "$service" ]; then
     $RUNTIME pod logs -f "$POD_NAME"
   else
-    $RUNTIME logs -f "fluent-ai-$service"
+    # Route through pod logs --container to avoid direct name-resolution bugs
+    # in some podman builds where 'podman logs <hyphenated-name>' fails.
+    $RUNTIME pod logs --container "fluent-ai-$service" -f "$POD_NAME"
   fi
 }
 
@@ -217,8 +219,8 @@ podman_status() {
   $RUNTIME pod ps
   if $RUNTIME pod exists "$POD_NAME" 2>/dev/null; then
     echo ""
-    echo "Containers in pod $POD_NAME:"
-    $RUNTIME ps --pod "$POD_NAME"
+    echo "Containers in pod $POD_NAME (all states):"
+    $RUNTIME ps -a --filter "pod=$POD_NAME"
   fi
 }
 

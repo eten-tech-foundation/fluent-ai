@@ -382,7 +382,9 @@ switch ($Command) {
     "logs" {
         if ($RuntimeMode -eq "podman-pod") {
             if ($svcArg) {
-                & $Runtime logs -f "fluent-ai-$svcArg"
+                # Route through pod logs --container to avoid direct name-resolution
+                # bugs in some podman builds where 'podman logs <hyphenated-name>' fails.
+                & $Runtime pod logs --container "fluent-ai-$svcArg" -f $PodName
             } else {
                 & $Runtime pod logs -f $PodName
             }
@@ -399,8 +401,8 @@ switch ($Command) {
             & $Runtime pod ps
             if (Pod-Exists) {
                 Write-Host ""
-                Write-Host "Containers in pod ${PodName}:"
-                & $Runtime ps --pod $PodName
+                Write-Host "Containers in pod ${PodName} (all states):"
+                & $Runtime ps -a --filter "pod=$PodName"
             }
         } else {
             Invoke-Compose @("ps")
