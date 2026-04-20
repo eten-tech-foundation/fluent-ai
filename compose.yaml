@@ -1,0 +1,55 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: fluent
+    ports:
+      - "${DB_PORT:-5433}:5432"
+    volumes:
+      - fluent-pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d fluent"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ai:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "${PORT:-8200}:8200"
+    volumes:
+      - ./src:/app/src:ro
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./uv.lock:/app/uv.lock:ro
+      - ./docker-entrypoint.sh:/app/docker-entrypoint.sh:ro
+    env_file: .env
+    environment:
+      ENVIRONMENT: development
+      DEBUG: "true"
+      # Move uv cache to the writable /tmp tmpfs to prevent permission errors on restart
+      UV_CACHE_DIR: /tmp/.uv-cache
+    user: "1001:1001"
+    read_only: true
+    tmpfs:
+      - /tmp:nosuid,size=256m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  fluent-pgdata:

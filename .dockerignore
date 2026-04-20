@@ -10,8 +10,6 @@ __pycache__
 .Python
 .venv
 venv
-ENV
-env
 
 # IDE
 .idea
@@ -23,22 +21,25 @@ env
 .pytest_cache
 .coverage
 htmlcov
-.tox
-.nox
 
 # Build
 *.egg-info
 dist
 build
 
-# Local env files (use docker-compose environment instead)
+# Local env files
 .env
-
-# Documentation
-*.md
-!README.md
+.env.dev
+.env.prod
+.db-initialized
 
 # Docker
-Dockerfile
 docker-compose*.yml
+compose.yaml
 .dockerignore
+
+# Scripts
+fai.sh
+fai.ps1
+fai
+fai.bat
