@@ -29,15 +29,14 @@ services:
       - ./docker-entrypoint.sh:/app/docker-entrypoint.sh:ro
     env_file: .env
     environment:
-      DATABASE_URL: "postgresql+asyncpg://postgres:postgres@db:5432/fluent"
       ENVIRONMENT: development
       DEBUG: "true"
-      UV_CACHE_DIR: /app/.cache/uv
+      # Move uv cache to the writable /tmp tmpfs to prevent permission errors on restart
+      UV_CACHE_DIR: /tmp/.uv-cache
     user: "1001:1001"
     read_only: true
     tmpfs:
-      - /tmp:nosuid,size=64m
-      - /app/.cache:noexec,nosuid,size=128m
+      - /tmp:nosuid,size=256m
     security_opt:
       - no-new-privileges:true
     cap_drop:
