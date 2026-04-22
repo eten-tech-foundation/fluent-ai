@@ -195,7 +195,7 @@ Thumbs.db
 
 # Alembic (database migrations)
 alembic/versions/
-alembic.ini
+# alembic.ini is tracked — it serves as a placeholder with setup instructions
 
 # Redis dump file
 dump.rdb
