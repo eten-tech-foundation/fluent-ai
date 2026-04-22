@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.crud import projects as projects_crud
 from app.database import get_db
 from app.schemas.projects import ProjectListResponse, ProjectResponse
+from app.security.auth import require_admin, require_api_key
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -24,6 +25,7 @@ router = APIRouter(prefix="/projects", tags=["projects"])
     "/",
     response_model=ProjectListResponse,
     summary="List projects (AI read-only via role_ai_reader)",
+    dependencies=[Depends(require_api_key)],
 )
 async def list_projects(
     db: AsyncSession = Depends(get_db),
@@ -41,7 +43,9 @@ async def list_projects(
 
 @router.get(
     "/_verify-permissions",
-    summary="Verify ai_user SELECT-only access")
+    summary="Verify ai_user SELECT-only access",
+    dependencies=[Depends(require_admin)],
+)
 async def verify_permissions(db: AsyncSession = Depends(get_db)) -> dict:
     """
     Dev/debug endpoint. Confirms:
@@ -77,6 +81,7 @@ async def verify_permissions(db: AsyncSession = Depends(get_db)) -> dict:
     "/{project_id}",
     response_model=ProjectResponse,
     summary="Get a project by ID (AI read-only)",
+    dependencies=[Depends(require_api_key)],
 )
 async def get_project(
     project_id: int,
