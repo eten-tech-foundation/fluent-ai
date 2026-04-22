@@ -1,8 +1,7 @@
 from fastapi import FastAPI
 
 from app.config import get_settings
-from app.routers import items, users
-from app.routers import projects
+from app.routers import items,users, projects,api_keys
 settings = get_settings()
 
 app = FastAPI(
@@ -16,6 +15,7 @@ app = FastAPI(
 app.include_router(items.router, prefix="/items", tags=["items"])
 app.include_router(users.router, prefix="/users", tags=["users"])
 app.include_router(projects.router, tags=["projects"])
+app.include_router(api_keys.router, prefix="/api-keys", tags=["api-keys"])
 
 # GET /docs provides interactive API documentation
 # GET /redoc provides alternative interactive API documentation

@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List
 
-from app.dependencies import get_token_header
+from app.security.auth import require_api_key
 
 router = APIRouter(
     prefix="/items",
     tags=["items"],
-    dependencies=[Depends(get_token_header)],
+    dependencies=[Depends(require_api_key)],
     responses={404: {"description": "Not found"}},
 )
 
