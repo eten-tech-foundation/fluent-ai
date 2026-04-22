@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from app.models.api_key import ApiKey
+from app.internal.models import ApiKey
 from app.security.auth import require_admin
 
 router = APIRouter(
