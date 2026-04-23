@@ -1,19 +1,27 @@
-from fastapi import Header, HTTPException, status
-from typing import Optional
+"""
+dependencies.py — Shared FastAPI dependency functions.
+"""
+from fastapi import Header
+
+from app.errors.codes import ErrorCode
+from app.errors.exceptions import AuthenticationException
 
 
-async def get_token_header(x_token: str = Header(...)):
+async def get_token_header(x_token: str = Header(...)) -> None:
+    """Validate the X-Token header required by the items router."""
     if x_token != "fake-super-secret-token":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="X-Token header invalid",
+        raise AuthenticationException(
+            message="Invalid or missing X-Token header.",
+            code=ErrorCode.TOKEN_INVALID,
+            details={"header": "X-Token"},
         )
 
 
-async def get_query_token(token: Optional[str] = None):
+async def get_query_token(token: str | None = None) -> str:
+    """Validate a token passed as a query parameter."""
     if not token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Token query parameter required",
+        raise AuthenticationException(
+            message="A token query parameter is required.",
+            code=ErrorCode.AUTHENTICATION_REQUIRED,
         )
     return token

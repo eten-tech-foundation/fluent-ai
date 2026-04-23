@@ -48,10 +48,14 @@ class Settings(BaseSettings):
     db_pool_recycle: int = Field(default=1800) # recycle connections after 30 min
 
     # Security
-    secret_key: str = Field(
-        default="your-secret-key-change-in-production"
-    )
-    
+    secret_key: str = Field(default="your-secret-key-change-in-production")
+
+    # Error handling
+    # Set show_stack_traces=True in .env.dev to include tracebacks in logs.
+    # Never enable in production — internal details must not be leaked.
+    show_stack_traces: bool = Field(default=False)
+    log_level: str = Field(default="INFO")
+
     # External AI Services
     openai_api_key: str | None = Field(default=None)
     anthropic_api_key: str | None = Field(default=None)
