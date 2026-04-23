@@ -9,13 +9,17 @@ This layer only handles:
 No DB queries or business logic live here.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud import projects as projects_crud
 from app.database import get_db
+from app.errors.exceptions import DatabaseException, NotFoundException
+from app.errors.logging import get_logger
 from app.schemas.projects import ProjectListResponse, ProjectResponse
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -41,7 +45,8 @@ async def list_projects(
 
 @router.get(
     "/_verify-permissions",
-    summary="Verify ai_user SELECT-only access")
+    summary="Verify ai_user SELECT-only access",
+)
 async def verify_permissions(db: AsyncSession = Depends(get_db)) -> dict:
     """
     Dev/debug endpoint. Confirms:
@@ -53,8 +58,10 @@ async def verify_permissions(db: AsyncSession = Depends(get_db)) -> dict:
     try:
         await db.execute(text("SELECT 1 FROM public.projects LIMIT 1"))
         results["select_public_projects"] = "OK"
-    except Exception as e:
-        results["select_public_projects"] = f"FAILED: {e}"
+    except DatabaseException as exc:
+        results["select_public_projects"] = f"FAILED: {exc.message}"
+    except Exception as exc:
+        results["select_public_projects"] = f"FAILED: {type(exc).__name__}: {exc}"
 
     try:
         await db.execute(
@@ -66,9 +73,12 @@ async def verify_permissions(db: AsyncSession = Depends(get_db)) -> dict:
         )
         await db.rollback()
         results["insert_public_projects"] = "UNEXPECTED SUCCESS — check role grants"
-    except Exception as e:
+    except DatabaseException as exc:
         await db.rollback()
-        results["insert_public_projects"] = f"Correctly denied: {type(e).__name__}"
+        results["insert_public_projects"] = f"Correctly denied: {exc.message}"
+    except Exception as exc:
+        await db.rollback()
+        results["insert_public_projects"] = f"Correctly denied: {type(exc).__name__}"
 
     return results
 
@@ -84,8 +94,8 @@ async def get_project(
 ) -> ProjectResponse:
     project = await projects_crud.get_project_by_id(db, project_id)
     if project is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project {project_id} not found",
+        raise NotFoundException(
+            message=f"Project {project_id} not found",
+            details={"project_id": project_id},
         )
     return ProjectResponse.model_validate(project)
