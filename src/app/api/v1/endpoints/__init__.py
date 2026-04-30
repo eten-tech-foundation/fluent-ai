@@ -11,5 +11,4 @@
 # Current endpoint modules (to be migrated from app/routers/ over time):
 #   projects.py   — list and retrieve projects (read-only, ai_user)
 #   api_keys.py   — CRUD for API keys (admin-only writes)
-#   users.py      — placeholder (no real implementation yet)
 #   items.py      — placeholder (no real implementation yet)
