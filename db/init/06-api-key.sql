@@ -9,8 +9,8 @@ CREATE TABLE IF NOT EXISTS ai.api_keys (
     name            VARCHAR(255) NOT NULL,
     permissions     TEXT[]       NOT NULL DEFAULT '{}',
     is_active       BOOLEAN      NOT NULL DEFAULT TRUE,
-    owner_user_id   UUID         NULL,
-    owner_org_id    UUID         NULL,
+    owner_user_id   INTEGER      NULL,
+    owner_org_id    INTEGER      NULL,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
     expires_at      TIMESTAMPTZ  NULL,
 
