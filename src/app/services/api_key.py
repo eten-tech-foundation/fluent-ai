@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.config import get_settings
 from app.internal.models import ApiKey
 from app.schemas.api_key import ApiKeyCreate, ApiKeyCreated, ApiKeyInfo, ApiKeyUpdate
 
@@ -28,6 +29,14 @@ async def create_api_key(
 ) -> ApiKeyCreated:
     raw_key = generate_raw_key()
     key_hash = hash_key(raw_key)
+    now = datetime.now(timezone.utc)
+
+    if payload.expires_at is not None:
+        expires_at = payload.expires_at
+    elif (days := get_settings().api_key_default_expiry_days) is not None:
+        expires_at = now + timedelta(days=days)
+    else:
+        expires_at = None
 
     record = ApiKey(
         id=uuid.uuid4(),
@@ -37,8 +46,8 @@ async def create_api_key(
         is_active=True,
         owner_user_id=payload.owner_user_id,
         owner_org_id=payload.owner_org_id,
-        created_at=datetime.now(timezone.utc),
-        expires_at=payload.expires_at,
+        created_at=now,
+        expires_at=expires_at,
     )
     db.add(record)
     await db.commit()
