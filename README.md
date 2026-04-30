@@ -106,14 +106,32 @@ ai   fluent-ai (built)    host:8200 → container:8200
 src/app/
 ├── main.py              # FastAPI app, router mounting
 ├── config.py            # Pydantic BaseSettings + cached getter
-├── dependencies.py      # Shared dependency functions
+├── dependencies.py      # Shared Depends() callables (get_db, require_api_key, require_admin)
+├── api/
+│   └── v1/
+│       ├── router.py    # Aggregates all v1 endpoint routers
+│       └── endpoints/
+│           └── api_keys.py   # /api-keys/* route handlers
 ├── core/
-│   └── config.py        # Core configuration
+│   └── exceptions.py    # Custom exception types (scaffold)
+├── db/                  # DB infrastructure scaffold (session, base, migrations)
+├── internal/
+│   ├── models.py        # SQLAlchemy ORM models (Project, ApiKey)
+│   └── admin.py         # Admin router (not yet mounted)
+├── models/              # Standard model location (scaffold)
 ├── routers/
-│   ├── items.py         # Item routes
-│   └── users.py         # User routes
-└── internal/
-    └── admin.py         # Admin routes
+│   └── projects.py      # /projects/* route handlers
+├── schemas/
+│   ├── api_key.py       # ApiKeyCreate, ApiKeyCreated, ApiKeyInfo, ApiKeyUpdate
+│   └── projects.py      # ProjectResponse, ProjectListResponse
+├── security/
+│   └── auth.py          # require_api_key, require_admin dependencies
+└── services/
+    └── api_key.py       # API key business logic (create, hash, revoke, etc.)
+
+tests/
+└── api/v1/
+    └── test_api_keys.py # Endpoint tests for /api-keys/*
 
 db/init/                 # SQL scripts run on first DB start
 Dockerfile               # Production multi-stage build
@@ -131,20 +149,46 @@ Once running, visit:
 - **ReDoc**: http://localhost:8200/redoc
 - **OpenAPI JSON**: http://localhost:8200/openapi.json
 
+### Authentication
+
+Protected endpoints require an `X-API-Key` header with a valid API key:
+
+```
+X-API-Key: fai_your_key_here
+```
+
+Admin-only endpoints additionally require the key to have the `"admin"` permission.
+
 ### Endpoints
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/` | Welcome message |
-| `GET` | `/health` | Health check |
-| `GET` | `/items/` | List items (requires `X-Token`) |
-| `GET` | `/items/{item_id}` | Get item |
-| `POST` | `/items/` | Create item |
-| `GET` | `/users/` | List users |
-| `GET` | `/users/{username}` | Get user |
-| `POST` | `/users/` | Create user |
-| `GET` | `/admin/stats` | Admin stats |
-| `GET` | `/admin/health` | Admin health |
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/` | — | Welcome message |
+| `GET` | `/health` | — | Health check |
+| `GET` | `/projects/` | API key | List projects (paginated) |
+| `GET` | `/projects/{id}` | API key | Get project by ID |
+| `GET` | `/projects/_verify-permissions` | Admin | Verify DB role grants |
+| `POST` | `/api-keys/` | Admin | Create a new API key |
+| `GET` | `/api-keys/` | Admin | List all API keys |
+| `PATCH` | `/api-keys/{key_id}` | Admin | Update key name, permissions, or expiry |
+| `DELETE` | `/api-keys/{key_id}` | Admin | Revoke an API key |
+| `GET` | `/api-keys/me` | API key | Get current key info |
+
+### API Key lifecycle
+
+Keys are created by an admin and returned with a `raw_key` field exactly once — it is never stored and cannot be retrieved again. All subsequent responses use `ApiKeyInfo`, which omits `raw_key` and `key_hash`.
+
+```bash
+# Create a key
+curl -X POST http://localhost:8200/api-keys/ \
+  -H "X-API-Key: $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-service", "permissions": []}'
+
+# Use the returned raw_key for subsequent requests
+curl http://localhost:8200/api-keys/me \
+  -H "X-API-Key: fai_<returned_raw_key>"
+```
 
 ## Production Build
 
