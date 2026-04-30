@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.dependencies import require_admin, require_api_key
+from app.errors.codes import ErrorCode
 from app.internal.models import ApiKey
 from app.main import app
 from app.schemas.api_key import ApiKeyCreated
@@ -98,16 +99,33 @@ def non_admin_client(client, user_record):
 # ---------------------------------------------------------------------------
 
 class TestAuthBehaviour:
-    def test_inactive_key_returns_401(self, client):
-        """Inactive keys are filtered out in the DB query — caller sees 401, not 403."""
-        with patch("app.security.auth.get_api_key_by_hash", new_callable=AsyncMock, return_value=None):
-            response = client.get("/api-keys/me", headers={"X-API-Key": "fai_some_revoked_key"})
-        assert response.status_code == 401
-
     def test_unknown_key_returns_401(self, client):
         with patch("app.security.auth.get_api_key_by_hash", new_callable=AsyncMock, return_value=None):
             response = client.get("/api-keys/me", headers={"X-API-Key": "fai_unknown"})
         assert response.status_code == 401
+
+    def test_inactive_key_returns_401(self, client):
+        """Service layer filters inactive keys before returning — result is None → 401."""
+        with patch("app.security.auth.get_api_key_by_hash", new_callable=AsyncMock, return_value=None):
+            response = client.get("/api-keys/me", headers={"X-API-Key": "fai_some_revoked_key"})
+        assert response.status_code == 401
+
+    def test_revoked_key_record_returns_403(self, client):
+        """A record returned with is_active=False is treated as revoked → 403."""
+        revoked = _api_key(USER_ID, [])
+        revoked.is_active = False
+        with patch("app.security.auth.get_api_key_by_hash", new_callable=AsyncMock, return_value=revoked):
+            response = client.get("/api-keys/me", headers={"X-API-Key": "fai_revoked"})
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == ErrorCode.AUTHORIZATION_DENIED
+
+    def test_expired_key_returns_403(self, client):
+        expired = _api_key(USER_ID, [])
+        expired.expires_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        with patch("app.security.auth.get_api_key_by_hash", new_callable=AsyncMock, return_value=expired):
+            response = client.get("/api-keys/me", headers={"X-API-Key": "fai_expired"})
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == ErrorCode.TOKEN_EXPIRED
 
 
 # ---------------------------------------------------------------------------

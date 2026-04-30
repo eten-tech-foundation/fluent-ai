@@ -68,6 +68,12 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Error handling
+    # Set show_stack_traces=True in .env.dev to include tracebacks in logs.
+    # Never enable in production — internal details must not be leaked.
+    show_stack_traces: bool = Field(default=False)
+    log_level: str = Field(default="INFO")
+
     # External AI Services
     openai_api_key: str | None = Field(default=None)
     anthropic_api_key: str | None = Field(default=None)
