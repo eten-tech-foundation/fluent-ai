@@ -27,7 +27,8 @@ from app.schemas.api_key import ApiKeyCreated
 KEY_ID = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 ADMIN_ID = uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 USER_ID = uuid.UUID("cccccccc-cccc-cccc-cccc-cccccccccccc")
-ORG_ID = uuid.UUID("dddddddd-dddd-dddd-dddd-dddddddddddd")
+OWNER_USER_ID = 42
+OWNER_ORG_ID = 7
 NOW = datetime(2026, 4, 30, 12, 0, 0, tzinfo=timezone.utc)
 RAW_KEY = "fai_test_rawkey_abc123"
 
@@ -43,7 +44,7 @@ def _api_key(key_id, permissions, *, owner_user_id=None, is_active=True):
     record.permissions = permissions
     record.is_active = is_active
     record.owner_user_id = owner_user_id
-    record.owner_org_id = None if owner_user_id else ORG_ID
+    record.owner_org_id = None if owner_user_id else OWNER_ORG_ID
     record.created_at = NOW
     record.expires_at = None
     return record
@@ -60,7 +61,7 @@ def admin_record():
 
 @pytest.fixture
 def user_record():
-    return _api_key(USER_ID, [], owner_user_id=USER_ID)
+    return _api_key(USER_ID, [], owner_user_id=OWNER_USER_ID)
 
 
 @pytest.fixture

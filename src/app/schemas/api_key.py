@@ -10,8 +10,8 @@ from pydantic import BaseModel, Field
 class ApiKeyCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     permissions: list[str] = Field(default_factory=list)
-    owner_user_id: uuid.UUID | None = None
-    owner_org_id: uuid.UUID | None = None
+    owner_user_id: int | None = None
+    owner_org_id: int | None = None
     expires_at: datetime | None = None  # None = use config default or never
 
 
@@ -33,8 +33,8 @@ class ApiKeyInfo(BaseModel):
     name: str
     permissions: list[str]
     is_active: bool
-    owner_user_id: uuid.UUID | None
-    owner_org_id: uuid.UUID | None
+    owner_user_id: int | None
+    owner_org_id: int | None
     created_at: datetime
     expires_at: datetime | None
 

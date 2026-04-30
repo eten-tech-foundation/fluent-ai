@@ -77,8 +77,8 @@ class ApiKey(Base):
     name: Column = Column(String(255), nullable=False)
     permissions: Column = Column(ARRAY(Text), nullable=False, server_default="{}")
     is_active: Column = Column(Boolean, nullable=False, default=True)
-    owner_user_id: Column = Column(UUID(as_uuid=True), nullable=True)
-    owner_org_id: Column = Column(UUID(as_uuid=True), nullable=True)
+    owner_user_id: Column = Column(Integer, nullable=True)
+    owner_org_id: Column = Column(Integer, nullable=True)
     created_at: Column = Column(
         DateTime(timezone=True), nullable=False, default=datetime.utcnow
     )

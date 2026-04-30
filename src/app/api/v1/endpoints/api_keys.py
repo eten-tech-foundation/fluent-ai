@@ -40,7 +40,7 @@ async def create_key(
 async def list_keys(
     db: AsyncSession = Depends(get_db),
     _: ApiKey = Depends(require_admin),
-) -> list[ApiKey]:
+) -> list[ApiKeyInfo]:
     return await list_api_keys(db)
 
 
@@ -54,7 +54,7 @@ async def patch_key(
     payload: ApiKeyUpdate,
     db: AsyncSession = Depends(get_db),
     _: ApiKey = Depends(require_admin),
-) -> ApiKey:
+) -> ApiKeyInfo:
     record = await update_api_key(db, key_id, payload)
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found.")
@@ -83,5 +83,5 @@ async def revoke_key(
 )
 async def get_my_key(
     api_key: ApiKey = Depends(require_api_key),
-) -> ApiKey:
-    return api_key
+) -> ApiKeyInfo:
+    return ApiKeyInfo.model_validate(api_key)

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.internal.models import ApiKey
-from app.schemas.api_key import ApiKeyCreate, ApiKeyCreated, ApiKeyUpdate
+from app.schemas.api_key import ApiKeyCreate, ApiKeyCreated, ApiKeyInfo, ApiKeyUpdate
 
 _KEY_PREFIX = "fai"
 _KEY_BYTES = 32
@@ -74,18 +74,18 @@ async def get_api_key_by_id(db: AsyncSession, key_id: uuid.UUID) -> ApiKey | Non
     return result.scalar_one_or_none()
 
 
-async def list_api_keys(db: AsyncSession) -> list[ApiKey]:
+async def list_api_keys(db: AsyncSession) -> list[ApiKeyInfo]:
     result = await db.execute(
         select(ApiKey).order_by(ApiKey.created_at.desc())
     )
-    return list(result.scalars().all())
+    return [ApiKeyInfo.model_validate(r) for r in result.scalars().all()]
 
 
 async def update_api_key(
     db: AsyncSession,
     key_id: uuid.UUID,
     payload: ApiKeyUpdate,
-) -> ApiKey | None:
+) -> ApiKeyInfo | None:
     record = await get_api_key_by_id(db, key_id)
     if record is None:
         return None
@@ -99,13 +99,14 @@ async def update_api_key(
 
     await db.commit()
     await db.refresh(record)
-    return record
+    return ApiKeyInfo.model_validate(record)
 
 
-async def revoke_api_key(db: AsyncSession, key_id: uuid.UUID) -> ApiKey | None:
+async def revoke_api_key(db: AsyncSession, key_id: uuid.UUID) -> ApiKeyInfo | None:
     record = await get_api_key_by_id(db, key_id)
-    if record:
-        record.is_active = False
-        await db.commit()
-        await db.refresh(record)
-    return record
+    if record is None:
+        return None
+    record.is_active = False
+    await db.commit()
+    await db.refresh(record)
+    return ApiKeyInfo.model_validate(record)
