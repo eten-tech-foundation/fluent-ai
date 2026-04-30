@@ -224,3 +224,7 @@ coverage.xml
 
 # isort
 .isort.cfg
+
+# AI generated files
+.claude/
+docs/superpowers/
