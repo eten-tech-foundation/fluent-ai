@@ -2,9 +2,10 @@
 tests/api/v1/test_api_keys.py — endpoint tests for /api-keys/
 
 Auth model:
-  - No key          → 401
+  - No key                        → 401
+  - Inactive/revoked key          → 401 (filtered at DB level, indistinguishable from unknown key)
   - Valid key, no admin permission → 403 on admin-only endpoints
-  - Valid admin key  → full access
+  - Valid admin key               → full access
 
 Service functions are patched so tests run without a database.
 """
@@ -90,6 +91,23 @@ def non_admin_client(client, user_record):
     app.dependency_overrides[require_api_key] = lambda: user_record
     yield client
     app.dependency_overrides.pop(require_api_key, None)
+
+
+# ---------------------------------------------------------------------------
+# Auth behaviour
+# ---------------------------------------------------------------------------
+
+class TestAuthBehaviour:
+    def test_inactive_key_returns_401(self, client):
+        """Inactive keys are filtered out in the DB query — caller sees 401, not 403."""
+        with patch("app.security.auth.get_api_key_by_hash", new_callable=AsyncMock, return_value=None):
+            response = client.get("/api-keys/me", headers={"X-API-Key": "fai_some_revoked_key"})
+        assert response.status_code == 401
+
+    def test_unknown_key_returns_401(self, client):
+        with patch("app.security.auth.get_api_key_by_hash", new_callable=AsyncMock, return_value=None):
+            response = client.get("/api-keys/me", headers={"X-API-Key": "fai_unknown"})
+        assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------
