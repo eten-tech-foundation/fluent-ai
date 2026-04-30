@@ -21,3 +21,4 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+cache_dir = "/tmp/.pytest_cache"
