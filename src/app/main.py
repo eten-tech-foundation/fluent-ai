@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 
 from app.config import get_settings
-from app.routers import items, projects, api_keys
+from app.routers import projects, api_keys
 settings = get_settings()
 
 app = FastAPI(
@@ -12,7 +12,6 @@ app = FastAPI(
 )
 
 # Include routers
-app.include_router(items.router, prefix="/items", tags=["items"])
 app.include_router(projects.router, tags=["projects"])
 app.include_router(api_keys.router, prefix="/api-keys", tags=["api-keys"])
 
