@@ -144,6 +144,27 @@ class TestCreateKey:
             response = admin_client.post("/api-keys/", json={"name": ""})
         assert response.status_code == 422
 
+    @pytest.mark.parametrize("field", ["owner_user_id", "owner_org_id"])
+    def test_zero_owner_id_returns_422(self, admin_client, field):
+        with patch("app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock):
+            response = admin_client.post("/api-keys/", json={"name": "k", field: 0})
+        assert response.status_code == 422
+
+    @pytest.mark.parametrize("field", ["owner_user_id", "owner_org_id"])
+    def test_negative_owner_id_returns_422(self, admin_client, field):
+        with patch("app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock):
+            response = admin_client.post("/api-keys/", json={"name": "k", field: -1})
+        assert response.status_code == 422
+
+    @pytest.mark.parametrize("field", ["owner_user_id", "owner_org_id"])
+    def test_valid_owner_id_accepted(self, admin_client, field):
+        created = ApiKeyCreated(
+            id=KEY_ID, name="k", permissions=[], raw_key=RAW_KEY, created_at=NOW, expires_at=None,
+        )
+        with patch("app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock, return_value=created):
+            response = admin_client.post("/api-keys/", json={"name": "k", field: 1})
+        assert response.status_code == 201
+
 
 # ---------------------------------------------------------------------------
 # GET /api-keys/
