@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import Depends, HTTPException, Request, Security, status
+from fastapi import Depends, Request, Security
 from fastapi.security import APIKeyHeader
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.errors.codes import ErrorCode
+from app.errors.exceptions import AuthenticationException, AuthorizationException
 from app.internal.models import ApiKey
 from app.services.api_key import get_api_key_by_hash
 
@@ -23,9 +25,9 @@ async def _extract_raw_key(
     """Pull the raw key from header or query param. Prefer header."""
     raw_key = header_key or request.query_params.get("api_key")
     if not raw_key:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing API key. Provide X-API-Key header.",
+        raise AuthenticationException(
+            message="Missing API key. Provide X-API-Key header.",
+            code=ErrorCode.AUTHENTICATION_REQUIRED,
         )
     return raw_key
 
@@ -45,21 +47,21 @@ async def require_api_key(
     record = await get_api_key_by_hash(db, raw_key)
 
     if record is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key.",
+        raise AuthenticationException(
+            message="Invalid API key.",
+            code=ErrorCode.TOKEN_INVALID,
         )
 
     if not record.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="API key has been revoked.",
+        raise AuthorizationException(
+            message="API key has been revoked.",
+            code=ErrorCode.AUTHORIZATION_DENIED,
         )
 
     if record.expires_at and record.expires_at < datetime.now(timezone.utc):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="API key has expired.",
+        raise AuthorizationException(
+            message="API key has expired.",
+            code=ErrorCode.TOKEN_EXPIRED,
         )
 
     request.state.api_key = record
@@ -78,8 +80,8 @@ async def require_admin(
     Always runs require_api_key first.
     """
     if "admin" not in (api_key.permissions or []):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin permission required.",
+        raise AuthorizationException(
+            message="Admin permission required.",
+            code=ErrorCode.INSUFFICIENT_PERMISSIONS,
         )
     return api_key
