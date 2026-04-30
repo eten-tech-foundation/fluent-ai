@@ -1,19 +1,21 @@
-from fastapi import Header, HTTPException, status
-from typing import Optional
+# dependencies.py — shared FastAPI Depends() callables
+#
+# This is the single place where cross-cutting concerns are expressed as
+# FastAPI dependencies. Routers import from here, not from security/ or db/
+# directly, so swapping implementations only requires changing this file.
+#
+# Active dependencies (import and use these in routers):
+#   - get_db         → yields an AsyncSession per request
+#   - require_api_key → validates X-API-Key header, returns ApiKey record
+#   - require_admin  → extends require_api_key, checks "admin" permission
+#
+# Example router usage:
+#   from app.dependencies import get_db, require_api_key
+#   @router.get("/")
+#   async def list_items(db: AsyncSession = Depends(get_db), _=Depends(require_api_key)):
+#       ...
 
+from app.database import get_db  # noqa: F401 — re-exported for routers
+from app.security.auth import require_admin, require_api_key  # noqa: F401
 
-async def get_token_header(x_token: str = Header(...)):
-    if x_token != "fake-super-secret-token":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="X-Token header invalid",
-        )
-
-
-async def get_query_token(token: Optional[str] = None):
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Token query parameter required",
-        )
-    return token
+__all__ = ["get_db", "require_api_key", "require_admin"]
