@@ -131,6 +131,7 @@ start_ai_container() {
     --pod "$POD_NAME" \
     "${env_flags[@]}" \
     -v "$SCRIPT_DIR/src:/app/src:ro" \
+    -v "$SCRIPT_DIR/tests:/app/tests:ro" \
     -v "$SCRIPT_DIR/pyproject.toml:/app/pyproject.toml:ro" \
     -v "$SCRIPT_DIR/uv.lock:/app/uv.lock:ro" \
     -v "$SCRIPT_DIR/docker-entrypoint.sh:/app/docker-entrypoint.sh:ro" \
@@ -434,7 +435,7 @@ case "$cmd" in
   # ── Development commands ───────────────────────────────────────────────────
 
   test)
-    exec_ai uv run pytest "$@"
+    exec_ai uv run pytest tests/ -v "$@"
     ;;
 
   lint)

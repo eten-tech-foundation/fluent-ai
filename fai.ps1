@@ -169,6 +169,7 @@ function Start-AiContainer {
         "--pod", $PodName
     ) + $envFlags + @(
         "-v", "${ScriptDir}\src:/app/src:ro",
+        "-v", "${ScriptDir}\tests:/app/tests:ro",
         "-v", "${ScriptDir}\pyproject.toml:/app/pyproject.toml:ro",
         "-v", "${ScriptDir}\uv.lock:/app/uv.lock:ro",
         "-v", "${ScriptDir}\docker-entrypoint.sh:/app/docker-entrypoint.sh:ro",
@@ -427,7 +428,7 @@ switch ($Command) {
 
     # ── Development commands ─────────────────────────────────────────────────
 
-    "test"          { Exec-Ai @("uv", "run", "pytest") + $Args }
+    "test"          { Exec-Ai @("uv", "run", "pytest", "tests/", "-v") + $Args }
     "lint"          { Exec-Ai @("uv", "run", "ruff", "check") + $Args }
     "lint:fix"      { Exec-Ai @("uv", "run", "ruff", "check", "--fix") + $Args }
     "format"        { Exec-Ai @("uv", "run", "ruff", "format") + $Args }
