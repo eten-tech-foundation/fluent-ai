@@ -1,43 +1,25 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.dependencies import get_db, require_admin, require_api_key
 from app.internal.models import ApiKey
-from app.schemas.api_key import ApiKeyCreate, ApiKeyCreated, ApiKeyInfo
-from app.security.auth import require_admin, require_api_key
+from app.schemas.api_key import ApiKeyCreate, ApiKeyCreated, ApiKeyInfo, ApiKeyUpdate
 from app.services.api_key import (
     create_api_key,
-    get_api_key_by_id,
     list_api_keys,
     revoke_api_key,
     update_api_key,
 )
 
-router = APIRouter(tags=["api-keys"])
+router = APIRouter()
 
-
-# ---------------------------------------------------------------------------
-# Schemas
-# ---------------------------------------------------------------------------
-
-class ApiKeyUpdate(BaseModel):
-    name: str | None = None
-    permissions: list[str] | None = None
-    expires_at: datetime | None = None
-
-
-# ---------------------------------------------------------------------------
-# Admin endpoints
-# ---------------------------------------------------------------------------
 
 @router.post(
-    "/admin/api-keys",
+    "/",
     response_model=ApiKeyCreated,
     status_code=status.HTTP_201_CREATED,
     summary="Generate a new API key",
@@ -51,7 +33,7 @@ async def create_key(
 
 
 @router.get(
-    "/admin/api-keys",
+    "/",
     response_model=list[ApiKeyInfo],
     summary="List all API keys",
 )
@@ -63,7 +45,7 @@ async def list_keys(
 
 
 @router.patch(
-    "/admin/api-keys/{key_id}",
+    "/{key_id}",
     response_model=ApiKeyInfo,
     summary="Update an API key's name, permissions, or expiry",
 )
@@ -80,7 +62,7 @@ async def patch_key(
 
 
 @router.delete(
-    "/admin/api-keys/{key_id}",
+    "/{key_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Revoke an API key",
 )
@@ -94,12 +76,8 @@ async def revoke_key(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found.")
 
 
-# ---------------------------------------------------------------------------
-# Key-holder endpoint
-# ---------------------------------------------------------------------------
-
 @router.get(
-    "/api-keys/me",
+    "/me",
     response_model=ApiKeyInfo,
     summary="Get current API key info",
 )

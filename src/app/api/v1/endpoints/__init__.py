@@ -8,6 +8,8 @@
 #
 # No DB queries. No business logic. No raw SQL.
 #
-# Current endpoint modules (to be migrated from app/routers/ over time):
+# Active endpoint modules:
+#   api_keys.py   — CRUD for API keys (admin writes, key-holder reads)
+#
+# Pending migration from app/routers/:
 #   projects.py   — list and retrieve projects (read-only, ai_user)
-#   api_keys.py   — CRUD for API keys (admin-only writes)

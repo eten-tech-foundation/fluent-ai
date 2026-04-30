@@ -4,15 +4,10 @@ import hashlib
 import secrets
 import uuid
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.internal.models import ApiKey
-from app.schemas.api_key import ApiKeyCreate, ApiKeyCreated
-
-if TYPE_CHECKING:
-    from app.routers.api_keys import ApiKeyUpdate
+from app.schemas.api_key import ApiKeyCreate, ApiKeyCreated, ApiKeyUpdate
 
 _KEY_PREFIX = "fai"
 _KEY_BYTES = 32

@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 
+from app.api.v1.router import router as api_v1_router
 from app.config import get_settings
-from app.routers import projects, api_keys
+from app.routers import projects
+
 settings = get_settings()
 
 app = FastAPI(
@@ -13,7 +15,7 @@ app = FastAPI(
 
 # Include routers
 app.include_router(projects.router, tags=["projects"])
-app.include_router(api_keys.router, prefix="/api-keys", tags=["api-keys"])
+app.include_router(api_v1_router)
 
 # GET /docs provides interactive API documentation
 # GET /redoc provides alternative interactive API documentation

@@ -39,3 +39,9 @@ class ApiKeyInfo(BaseModel):
     expires_at: datetime | None
 
     model_config = {"from_attributes": True}
+
+
+class ApiKeyUpdate(BaseModel):
+    name: str | None = None
+    permissions: list[str] | None = None
+    expires_at: datetime | None = None
