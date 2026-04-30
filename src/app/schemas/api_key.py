@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ApiKeyCreate(BaseModel):
@@ -13,6 +13,14 @@ class ApiKeyCreate(BaseModel):
     owner_user_id: int | None = Field(default=None, gt=0)
     owner_org_id: int | None = Field(default=None, gt=0)
     expires_at: datetime | None = None  # None = use config default or never
+
+    @model_validator(mode="after")
+    def exactly_one_owner(self) -> ApiKeyCreate:
+        has_user = self.owner_user_id is not None
+        has_org = self.owner_org_id is not None
+        if has_user == has_org:  # both set or neither set
+            raise ValueError("Provide exactly one of owner_user_id or owner_org_id.")
+        return self
 
 
 class ApiKeyCreated(BaseModel):

@@ -133,7 +133,7 @@ class TestCreateKey:
             expires_at=None,
         )
         with patch("app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock, return_value=created):
-            response = admin_client.post("/api-keys/", json={"name": "new-key", "permissions": []})
+            response = admin_client.post("/api-keys/", json={"name": "new-key", "permissions": [], "owner_user_id": 1})
 
         assert response.status_code == 201
         body = response.json()
@@ -147,19 +147,29 @@ class TestCreateKey:
             id=KEY_ID, name="k", permissions=[], raw_key=RAW_KEY, created_at=NOW, expires_at=None,
         )
         with patch("app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock, return_value=created):
-            response = admin_client.post("/api-keys/", json={"name": "k"})
+            response = admin_client.post("/api-keys/", json={"name": "k", "owner_user_id": 1})
 
         assert "raw_key" in response.json()
         assert "key_hash" not in response.json()
 
     def test_missing_name_returns_422(self, admin_client):
         with patch("app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock):
-            response = admin_client.post("/api-keys/", json={"permissions": []})
+            response = admin_client.post("/api-keys/", json={"permissions": [], "owner_user_id": 1})
         assert response.status_code == 422
 
     def test_empty_name_returns_422(self, admin_client):
         with patch("app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock):
-            response = admin_client.post("/api-keys/", json={"name": ""})
+            response = admin_client.post("/api-keys/", json={"name": "", "owner_user_id": 1})
+        assert response.status_code == 422
+
+    def test_no_owner_returns_422(self, admin_client):
+        with patch("app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock):
+            response = admin_client.post("/api-keys/", json={"name": "k"})
+        assert response.status_code == 422
+
+    def test_both_owners_returns_422(self, admin_client):
+        with patch("app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock):
+            response = admin_client.post("/api-keys/", json={"name": "k", "owner_user_id": 1, "owner_org_id": 2})
         assert response.status_code == 422
 
     @pytest.mark.parametrize("field", ["owner_user_id", "owner_org_id"])

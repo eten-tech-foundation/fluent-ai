@@ -26,11 +26,6 @@ async def create_api_key(
     db: AsyncSession,
     payload: ApiKeyCreate,
 ) -> ApiKeyCreated:
-    # if payload.owner_user_id is None and payload.owner_org_id is None:
-    #     raise ValueError("Either owner_user_id or owner_org_id must be provided.")
-    # if payload.owner_user_id is not None and payload.owner_org_id is not None:
-    #     raise ValueError("Provide either owner_user_id or owner_org_id, not both.")
-
     raw_key = generate_raw_key()
     key_hash = hash_key(raw_key)
 
