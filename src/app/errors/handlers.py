@@ -231,7 +231,7 @@ async def _handle_request_validation_error(
     )
 
     return _json_error(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         code=ErrorCode.VALIDATION_ERROR,
         message="Request validation failed. Check the details for field-level errors.",
         request_id=request_id,
