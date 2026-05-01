@@ -9,21 +9,21 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, CheckConstraint, ARRAY,DateTime, Integer, String, text
-from sqlalchemy.dialects.postgresql import JSONB ,UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
 import uuid
 
 from sqlalchemy import (
+    ARRAY,
     Boolean,
     CheckConstraint,
     Column,
     DateTime,
+    Integer,
     String,
     Text,
-    ARRAY,
+    text,
 )
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):

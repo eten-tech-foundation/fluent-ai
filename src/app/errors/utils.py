@@ -5,7 +5,6 @@ Provides helpers for database retry logic and context extraction.
 """
 
 import asyncio
-import logging
 from collections.abc import Callable
 from functools import wraps
 from typing import Any
@@ -41,7 +40,7 @@ def with_db_retry(
             while True:
                 try:
                     return await func(*args, **kwargs)
-                except (OperationalError, TimeoutError) as exc:
+                except (OperationalError, TimeoutError):
                     retries += 1
                     if retries > max_retries:
                         logger.error(
