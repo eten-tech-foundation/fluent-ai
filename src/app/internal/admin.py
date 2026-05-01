@@ -1,5 +1,7 @@
 from fastapi import APIRouter
 
+from app.dependencies import GoogleGeminiDep
+
 router = APIRouter(
     prefix="/admin",
     tags=["admin"],
@@ -27,3 +29,29 @@ async def admin_health_check():
         "cache": "connected",
         "version": "0.1.0"
     }
+
+
+@router.get("/ai-test")
+async def test_ai_connectivity(
+    gemini_client: GoogleGeminiDep,
+    prompt: str = "Say hello in exactly 5 words.",
+):
+    """
+    Live test of the Google Gemini integration.
+    Makes a real API request to verify credentials.
+    """
+    try:
+        response_text = await gemini_client.generate_content(prompt)
+        return {
+            "status": "success",
+            "message": "API key is valid and working.",
+            "model": gemini_client._model_name,
+            "prompt": prompt,
+            "response": response_text,
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": "API request failed.",
+            "error": str(e)
+        }

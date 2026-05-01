@@ -1,8 +1,12 @@
 """
 dependencies.py — Shared FastAPI dependency functions.
 """
-from fastapi import Header
+from typing import Annotated
 
+from fastapi import Depends, Header
+
+from app.config import get_settings
+from app.core.ai_clients.google_gemini import GoogleGeminiClient
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import AuthenticationException
 
@@ -25,3 +29,21 @@ async def get_query_token(token: str | None = None) -> str:
             code=ErrorCode.AUTHENTICATION_REQUIRED,
         )
     return token
+
+
+# --------------------------------------------------------------------------- #
+# AI client singletons
+# --------------------------------------------------------------------------- #
+
+_google_gemini_client: GoogleGeminiClient | None = None
+
+
+async def get_google_gemini_client() -> GoogleGeminiClient:
+    """Return the cached GoogleGeminiClient singleton, creating it on first call."""
+    global _google_gemini_client
+    if _google_gemini_client is None:
+        _google_gemini_client = GoogleGeminiClient(settings=get_settings())
+    return _google_gemini_client
+
+
+GoogleGeminiDep = Annotated[GoogleGeminiClient, Depends(get_google_gemini_client)]

@@ -317,21 +317,21 @@ def register_exception_handlers(app: FastAPI) -> None:
     the FluentAIException base-class handler.
     """
     # Custom hierarchy — most specific first
-    app.add_exception_handler(ValidationException, _handle_validation_exception)
-    app.add_exception_handler(AuthenticationException, _handle_authentication_exception)
-    app.add_exception_handler(AuthorizationException, _handle_authorization_exception)
-    app.add_exception_handler(NotFoundException, _handle_not_found_exception)
-    app.add_exception_handler(ConflictException, _handle_conflict_exception)
-    app.add_exception_handler(DatabaseException, _handle_database_exception)
+    app.add_exception_handler(ValidationException, _handle_validation_exception)  # type: ignore[arg-type]
+    app.add_exception_handler(AuthenticationException, _handle_authentication_exception)  # type: ignore[arg-type]
+    app.add_exception_handler(AuthorizationException, _handle_authorization_exception)  # type: ignore[arg-type]
+    app.add_exception_handler(NotFoundException, _handle_not_found_exception)  # type: ignore[arg-type]
+    app.add_exception_handler(ConflictException, _handle_conflict_exception)  # type: ignore[arg-type]
+    app.add_exception_handler(DatabaseException, _handle_database_exception)  # type: ignore[arg-type]
     app.add_exception_handler(
-        ExternalServiceException, _handle_external_service_exception
+        ExternalServiceException, _handle_external_service_exception  # type: ignore[arg-type]
     )
     # Base class catch-all (must come after all subclasses)
-    app.add_exception_handler(FluentAIException, _handle_fluent_ai_exception)
+    app.add_exception_handler(FluentAIException, _handle_fluent_ai_exception)  # type: ignore[arg-type]
 
     # FastAPI / Starlette built-ins
-    app.add_exception_handler(RequestValidationError, _handle_request_validation_error)
-    app.add_exception_handler(HTTPException, _handle_http_exception)
+    app.add_exception_handler(RequestValidationError, _handle_request_validation_error)  # type: ignore[arg-type]
+    app.add_exception_handler(HTTPException, _handle_http_exception)  # type: ignore[arg-type]
 
     # Absolute catch-all
     app.add_exception_handler(Exception, _handle_unhandled_exception)
