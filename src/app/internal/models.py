@@ -5,12 +5,24 @@ These map to tables owned by the Web API (public schema).
 The AI service only has SELECT access here via role_ai_reader.
 No INSERT / UPDATE / DELETE operations should be performed on these models.
 """
-
+from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Integer, String, text
-from sqlalchemy.dialects.postgresql import JSONB
+import uuid
+
+from sqlalchemy import (
+    ARRAY,
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    Integer,
+    String,
+    Text,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -49,3 +61,25 @@ class Project(Base):
 
     def __repr__(self) -> str:
         return f"<Project id={self.id} name={self.name!r} status={self.status!r}>"
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+    __table_args__ = (
+        CheckConstraint(
+            "num_nonnulls(owner_user_id, owner_org_id) = 1",
+            name="ck_api_keys_single_owner",
+        ),
+        {"schema": "ai"},
+    )
+
+    id: Column = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    key_hash: Column = Column(Text, nullable=False, unique=True)
+    name: Column = Column(String(255), nullable=False)
+    permissions: Column = Column(ARRAY(Text), nullable=False, server_default="{}")
+    is_active: Column = Column(Boolean, nullable=False, default=True)
+    owner_user_id: Column = Column(Integer, nullable=True)
+    owner_org_id: Column = Column(Integer, nullable=True)
+    created_at: Column = Column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+    expires_at: Column = Column(DateTime(timezone=True), nullable=True)        

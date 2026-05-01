@@ -3,13 +3,14 @@ main.py — FastAPI application factory for the Fluent AI service.
 """
 from fastapi import FastAPI
 
+from app.api.v1.router import router as api_v1_router
 from app.config import get_settings
 from app.errors.handlers import register_exception_handlers
 from app.errors.schemas import ErrorResponse
 from app.middleware.request_id import RequestIDMiddleware
-from app.routers import items, users
 from app.routers import projects
 from app.internal import admin
+
 
 settings = get_settings()
 
@@ -48,10 +49,10 @@ register_exception_handlers(app)
 # --------------------------------------------------------------------------- #
 # Routers
 # --------------------------------------------------------------------------- #
-app.include_router(items.router, prefix="/items", tags=["items"])
-app.include_router(users.router, prefix="/users", tags=["users"])
 app.include_router(projects.router, tags=["projects"])
 app.include_router(admin.router)
+app.include_router(api_v1_router)
+
 
 # GET /docs provides interactive API documentation
 # GET /redoc provides alternative interactive API documentation
@@ -69,4 +70,3 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
-

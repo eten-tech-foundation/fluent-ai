@@ -1,6 +1,7 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.dependencies import GoogleGeminiDep
+from app.security.auth import require_admin
 
 router = APIRouter(
     prefix="/admin",
@@ -9,18 +10,16 @@ router = APIRouter(
 )
 
 
-@router.get("/stats")
+@router.get("/stats", dependencies=[Depends(require_admin)])
 async def get_admin_stats():
     """Get administrative statistics"""
     return {
-        "total_users": 2,
         "total_items": 2,
-        "active_sessions": 0,
-        "server_uptime": "2 days, 3 hours"
+        "server_uptime": "2 days, 3 hours",
     }
 
 
-@router.get("/health")
+@router.get("/health", dependencies=[Depends(require_admin)])
 async def admin_health_check():
     """Admin health check with more details"""
     return {

@@ -15,7 +15,7 @@ def _get_env_file() -> str:
 
 class Settings(BaseSettings):
     """Application settings with environment variable support."""
-    
+
     model_config = SettingsConfigDict(
         env_file=_get_env_file(),
         env_file_encoding="utf-8",
@@ -48,7 +48,25 @@ class Settings(BaseSettings):
     db_pool_recycle: int = Field(default=1800) # recycle connections after 30 min
 
     # Security
-    secret_key: str = Field(default="your-secret-key-change-in-production")
+    secret_key: str = Field(
+        default="your-secret-key-change-in-production"
+    )
+
+    # API Keys
+    api_key_default_expiry_days: int | None = Field(
+        default=None,
+        description=(
+            "Default expiry in days applied when creating a new API key "
+            "and no explicit expires_at is provided. None = never expires."
+        ),
+    )
+    admin_api_key_hash: str | None = Field(
+        default=None,
+        description=(
+            "SHA-256 hash of the seed admin API key. "
+            "Set in .env — never put the raw key here."
+        ),
+    )
 
     # Error handling
     # Set show_stack_traces=True in .env.dev to include tracebacks in logs.

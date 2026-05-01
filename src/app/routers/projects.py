@@ -18,6 +18,7 @@ from app.database import get_db
 from app.errors.exceptions import DatabaseException, NotFoundException
 from app.errors.logging import get_logger
 from app.schemas.projects import ProjectListResponse, ProjectResponse
+from app.security.auth import require_admin, require_api_key
 
 logger = get_logger(__name__)
 
@@ -28,6 +29,7 @@ router = APIRouter(prefix="/projects", tags=["projects"])
     "/",
     response_model=ProjectListResponse,
     summary="List projects (AI read-only via role_ai_reader)",
+    dependencies=[Depends(require_api_key)],
 )
 async def list_projects(
     db: AsyncSession = Depends(get_db),
@@ -46,6 +48,7 @@ async def list_projects(
 @router.get(
     "/_verify-permissions",
     summary="Verify ai_user SELECT-only access",
+    dependencies=[Depends(require_admin)],
 )
 async def verify_permissions(db: AsyncSession = Depends(get_db)) -> dict:
     """
@@ -87,6 +90,7 @@ async def verify_permissions(db: AsyncSession = Depends(get_db)) -> dict:
     "/{project_id}",
     response_model=ProjectResponse,
     summary="Get a project by ID (AI read-only)",
+    dependencies=[Depends(require_api_key)],
 )
 async def get_project(
     project_id: int,
