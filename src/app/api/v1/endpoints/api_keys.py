@@ -14,6 +14,9 @@ from app.services.api_key import (
     revoke_api_key,
     update_api_key,
 )
+from app.logging.utils import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -55,6 +58,7 @@ async def patch_key(
     db: AsyncSession = Depends(get_db),
     _: ApiKey = Depends(require_admin),
 ) -> ApiKeyInfo:
+    logger.debug("API key patch requested", key_id=str(key_id))
     record = await update_api_key(db, key_id, payload)
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found.")
@@ -71,6 +75,7 @@ async def revoke_key(
     db: AsyncSession = Depends(get_db),
     _: ApiKey = Depends(require_admin),
 ) -> None:
+    logger.debug("API key revoke requested", key_id=str(key_id))
     record = await revoke_api_key(db, key_id)
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found.")
@@ -84,4 +89,5 @@ async def revoke_key(
 async def get_my_key(
     api_key: ApiKey = Depends(require_api_key),
 ) -> ApiKeyInfo:
+    logger.debug("Current key info requested")
     return ApiKeyInfo.model_validate(api_key)

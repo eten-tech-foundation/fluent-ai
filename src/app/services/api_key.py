@@ -8,7 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.internal.models import ApiKey
+from app.logging.utils import get_logger
 from app.schemas.api_key import ApiKeyCreate, ApiKeyCreated, ApiKeyInfo, ApiKeyUpdate
+
+logger = get_logger(__name__)
 
 _KEY_PREFIX = "fai"
 _KEY_BYTES = 32
@@ -53,6 +56,14 @@ async def create_api_key(
     await db.commit()
     await db.refresh(record)
 
+    logger.info(
+        "API key created",
+        key_id=str(record.id),
+        name=record.name,
+        permissions=record.permissions,
+        expires_at=record.expires_at.isoformat() if record.expires_at else None,
+    )
+
     return ApiKeyCreated(
         id=record.id,
         name=record.name,
@@ -64,6 +75,7 @@ async def create_api_key(
 
 
 async def get_api_key_by_hash(db: AsyncSession, raw_key: str) -> ApiKey | None:
+    logger.debug("Looking up API key by hash")
     key_hash = hash_key(raw_key)
     result = await db.execute(
         select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.is_active == True)
@@ -82,7 +94,9 @@ async def list_api_keys(db: AsyncSession) -> list[ApiKeyInfo]:
     result = await db.execute(
         select(ApiKey).order_by(ApiKey.created_at.desc())
     )
-    return [ApiKeyInfo.model_validate(r) for r in result.scalars().all()]
+    keys = result.scalars().all()
+    logger.debug("API keys listed", count=len(keys))
+    return [ApiKeyInfo.model_validate(r) for r in keys]
 
 
 async def update_api_key(
@@ -103,6 +117,13 @@ async def update_api_key(
 
     await db.commit()
     await db.refresh(record)
+
+    logger.info(
+        "API key updated",
+        key_id=str(record.id),
+        name=record.name,
+        permissions=record.permissions,
+    )
     return ApiKeyInfo.model_validate(record)
 
 
@@ -111,6 +132,11 @@ async def revoke_api_key(db: AsyncSession, key_id: uuid.UUID) -> ApiKeyInfo | No
     if record is None:
         return None
     record.is_active = False
+    logger.warning(
+        "API key revoked",
+        key_id=str(record.id),
+        name=record.name,
+    )
     await db.commit()
     await db.refresh(record)
     return ApiKeyInfo.model_validate(record)

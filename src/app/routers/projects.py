@@ -36,7 +36,9 @@ async def list_projects(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> ProjectListResponse:
+    logger.debug("Listing projects", limit=limit, offset=offset)
     projects, total = await projects_crud.get_projects(db, limit=limit, offset=offset)
+    logger.info("Projects listed", count=len(projects), total=total, limit=limit, offset=offset)
     return ProjectListResponse(
         items=[ProjectResponse.model_validate(p) for p in projects],
         total=total,
@@ -56,6 +58,7 @@ async def verify_permissions(db: AsyncSession = Depends(get_db)) -> dict:
       - ai_user can SELECT from public.projects
       - ai_user cannot INSERT into public.projects
     """
+    logger.info("Running DB permission verification")
     results: dict[str, str] = {}
 
     try:
@@ -83,6 +86,7 @@ async def verify_permissions(db: AsyncSession = Depends(get_db)) -> dict:
         await db.rollback()
         results["insert_public_projects"] = f"Correctly denied: {type(exc).__name__}"
 
+    logger.info("Permission verification complete", results=results)
     return results
 
 
@@ -96,10 +100,12 @@ async def get_project(
     project_id: int,
     db: AsyncSession = Depends(get_db),
 ) -> ProjectResponse:
+    logger.debug("Fetching project", project_id=project_id)
     project = await projects_crud.get_project_by_id(db, project_id)
     if project is None:
         raise NotFoundException(
             message=f"Project {project_id} not found",
             details={"project_id": project_id},
         )
+    logger.debug("Project found", project_id=project_id)
     return ProjectResponse.model_validate(project)

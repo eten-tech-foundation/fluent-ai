@@ -20,6 +20,8 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
 
+from app.logging.context import set_request_context
+
 class RequestIDMiddleware(BaseHTTPMiddleware):
     """Attach a unique request ID to every inbound request and response."""
 
@@ -33,6 +35,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
         # Store on request state so routers and exception handlers can access it.
         request.state.request_id = request_id
+        set_request_context(request_id)
 
         response: Response = await call_next(request)
 

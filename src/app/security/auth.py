@@ -10,7 +10,10 @@ from app.database import get_db
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import AuthenticationException, AuthorizationException
 from app.internal.models import ApiKey
+from app.logging.utils import get_logger
 from app.services.api_key import get_api_key_by_hash
+
+logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Extractors — header preferred, query param as fallback
@@ -65,6 +68,12 @@ async def require_api_key(
         )
 
     request.state.api_key = record
+    logger.debug(
+        "API key authenticated",
+        key_id=str(record.id),
+        name=record.name,
+        permissions=record.permissions,
+    )
     return record
 
 
@@ -84,4 +93,5 @@ async def require_admin(
             message="Admin permission required.",
             code=ErrorCode.INSUFFICIENT_PERMISSIONS,
         )
+    logger.debug("Admin access granted", key_id=str(api_key.id), name=api_key.name)
     return api_key

@@ -74,6 +74,34 @@ class Settings(BaseSettings):
     show_stack_traces: bool = Field(default=False)
     log_level: str = Field(default="INFO")
 
+    log_output: str = Field(
+        default="stdout",
+        description="Log destination: 'stdout', 'file', or 'both'.",
+    )
+    log_file_path: str = Field(
+        default="/app/logs/app.log",
+        description="Path for file log output. Used when log_output is 'file' or 'both'.",
+    )
+    log_rotation: bool = Field(
+        default=True,
+        description="Enable RotatingFileHandler. No effect when log_output is 'stdout'.",
+    )
+    log_rotation_max_bytes: int = Field(
+        default=10_485_760,
+        description="Max log file size in bytes before rotation (default 10 MB).",
+    )
+    log_rotation_backup_count: int = Field(
+        default=5,
+        description="Number of rotated backup files to retain.",
+    )
+    log_sampling_rate: float = Field(
+        default=1.0,
+        description=(
+            "Fraction of INFO-level request logs to emit (0.0–1.0). "
+            "1.0 = log everything. Reduce for high-throughput endpoints."
+        ),
+    )
+
     # External AI Services
     openai_api_key: str | None = Field(default=None)
     anthropic_api_key: str | None = Field(default=None)
