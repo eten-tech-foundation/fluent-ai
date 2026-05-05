@@ -33,7 +33,7 @@ def scrub_dict(data: dict[str, Any]) -> dict[str, Any]:
     """Return a new dict with sensitive values redacted."""
     result = {}
     for key, value in data.items():
-        if key.lower() in _SENSITIVE_KEYS:
+        if isinstance(key, str) and key.lower() in _SENSITIVE_KEYS:
             result[key] = "[REDACTED]"
         elif isinstance(value, dict):
             result[key] = scrub_dict(value)

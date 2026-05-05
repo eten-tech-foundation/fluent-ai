@@ -43,7 +43,11 @@ class JsonFormatter(logging.Formatter):
         # Structured keyword data from StructuredLogger.
         structured = getattr(record, "_structured", {})
         if structured:
-            log_data.update(structured)
+            for k, v in structured.items():
+                if k not in log_data:
+                    log_data[k] = v
+                else:
+                    log_data[f"extra_{k}"] = v
 
         # Exception info.
         if record.exc_info and not record.exc_text:

@@ -49,7 +49,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 duration_ms=duration_ms,
             )
             return response
-        except Exception as exc:
+        except BaseException as exc:
             duration_ms = round((time.monotonic() - start) * 1000, 2)
             logger.error(
                 "Request failed",

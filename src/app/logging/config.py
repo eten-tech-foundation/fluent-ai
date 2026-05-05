@@ -69,6 +69,12 @@ def configure_logging(settings: Settings) -> None:
 
     root.setLevel(getattr(logging, settings.log_level.upper(), logging.INFO))
 
+    # Force uvicorn to use our root handlers instead of its own
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        l = logging.getLogger(name)
+        l.handlers.clear()
+        l.propagate = True
+
     # Silence noisy third-party loggers
     for name in ("uvicorn.access", "sqlalchemy.engine", "httpx"):
         logging.getLogger(name).setLevel(logging.WARNING)
