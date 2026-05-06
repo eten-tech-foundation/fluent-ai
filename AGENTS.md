@@ -95,16 +95,22 @@ src/app/                      # All Python source code
 ├── __init__.py               # Empty package marker
 ├── main.py                   # FastAPI app creation, root routes, router mounting
 ├── config.py                 # Pydantic BaseSettings + cached getter
-├── core/
-│   └── config.py             # Core configuration
+├── database.py               # Database connection and session management
 ├── dependencies.py           # Shared FastAPI dependency functions
+├── api/                      # API versioned routes
+├── core/                     # Core configuration and utilities
+├── crud/                     # Database CRUD operations
+├── errors/                   # Error handlers and exceptions
+├── internal/                 # Internal/admin routes
+├── middleware/               # Custom middleware
+├── models/                   # SQLAlchemy ORM models
 ├── routers/                  # Public route handlers, one file per domain entity
-│   ├── __init__.py
-│   ├── items.py
-│   └── users.py
-└── internal/                 # Internal/admin routes
-    ├── __init__.py
-    └── admin.py
+├── schemas/                  # Pydantic request/response schemas
+├── security/                 # Security and authentication utilities
+└── services/                 # Business logic layer
+
+src/tests/                    # Test files
+tests/                        # Additional test files
 
 db/init/                      # SQL init scripts run on first DB start
 Dockerfile                    # Production multi-stage build
@@ -114,6 +120,7 @@ docker-entrypoint.sh          # Container startup: init check → uv run fastapi
 fai.sh / fai.ps1              # Helper scripts (see Operating Modes above)
 pyproject.toml                # Project metadata and dependencies
 uv.lock                       # Locked dependency manifest (commit this)
+alembic.ini                   # Alembic configuration for database migrations
 ```
 
 ## Code Style Guidelines
