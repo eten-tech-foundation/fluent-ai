@@ -9,6 +9,8 @@ from app.errors.handlers import register_exception_handlers
 from app.errors.schemas import ErrorResponse
 from app.middleware.request_id import RequestIDMiddleware
 from app.routers import projects
+from app.internal import admin
+
 
 settings = get_settings()
 
@@ -48,7 +50,9 @@ register_exception_handlers(app)
 # Routers
 # --------------------------------------------------------------------------- #
 app.include_router(projects.router, tags=["projects"])
+app.include_router(admin.router)
 app.include_router(api_v1_router)
+
 
 # GET /docs provides interactive API documentation
 # GET /redoc provides alternative interactive API documentation
