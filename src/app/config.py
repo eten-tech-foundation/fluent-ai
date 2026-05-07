@@ -1,23 +1,14 @@
-import os
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-def _get_env_file() -> str:
-    """Determine which .env file to load based on ENVIRONMENT variable."""
-    env = os.getenv("ENVIRONMENT", "development")
-    if env == "production":
-        return ".env.prod"
-    return ".env.dev"
 
 
 class Settings(BaseSettings):
     """Application settings with environment variable support."""
 
     model_config = SettingsConfigDict(
-        env_file=_get_env_file(),
+        env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -69,10 +60,17 @@ class Settings(BaseSettings):
     )
 
     # Error handling
-    # Set show_stack_traces=True in .env.dev to include tracebacks in logs.
-    # Never enable in production — internal details must not be leaked.
+    # Set show_stack_traces=True in .env to include tracebacks in dev.
+    # Never enable in production — enforced by _enforce_production_safety below.
     show_stack_traces: bool = Field(default=False)
     log_level: str = Field(default="INFO")
+
+    @model_validator(mode="after")
+    def _enforce_production_safety(self) -> "Settings":
+        """Force show_stack_traces off in production, regardless of env var."""
+        if self.environment == "production" and self.show_stack_traces:
+            self.show_stack_traces = False
+        return self
 
     log_output: str = Field(
         default="stdout",
@@ -122,7 +120,7 @@ class Settings(BaseSettings):
         Ensure the database URL uses the asyncpg driver.
 
         Handles the case where DATABASE_URL is set with a plain
-        postgres:// or postgresql:// scheme (e.g. from .env.dev).
+        postgres:// or postgresql:// scheme (e.g. from .env).
         """
         url = self.database_url
         if url.startswith("postgres://"):

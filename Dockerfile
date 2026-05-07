@@ -23,6 +23,14 @@ COPY src/ ./src/
 # Install the project itself
 RUN uv sync --frozen --no-dev
 
+# Create non-root user and log directory for file-based logging
+RUN groupadd -g 1001 python && \
+    useradd -u 1001 -g python -s /bin/false python && \
+    mkdir -p /app/logs && \
+    chown -R python:python /app
+
+USER python
+
 # Expose the application port
 EXPOSE 8200
 

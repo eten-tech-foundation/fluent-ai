@@ -37,23 +37,20 @@ def configure_logging(settings: Settings) -> None:
     # Handlers
     handlers: list[logging.Handler] = []
 
-    if settings.is_production:
-        if settings.log_output in ("stdout", "both"):
-            handlers.append(logging.StreamHandler(sys.stdout))
-
-        if settings.log_output in ("file", "both"):
-            if settings.log_rotation:
-                handlers.append(
-                    logging.handlers.RotatingFileHandler(
-                        settings.log_file_path,
-                        maxBytes=settings.log_rotation_max_bytes,
-                        backupCount=settings.log_rotation_backup_count,
-                    )
-                )
-            else:
-                handlers.append(logging.FileHandler(settings.log_file_path))
-    else:
+    if settings.log_output in ("stdout", "both"):
         handlers.append(logging.StreamHandler(sys.stdout))
+
+    if settings.log_output in ("file", "both"):
+        if settings.log_rotation:
+            handlers.append(
+                logging.handlers.RotatingFileHandler(
+                    settings.log_file_path,
+                    maxBytes=settings.log_rotation_max_bytes,
+                    backupCount=settings.log_rotation_backup_count,
+                )
+            )
+        else:
+            handlers.append(logging.FileHandler(settings.log_file_path))
 
     # Apply formatter and filters to each handler
     for handler in handlers:

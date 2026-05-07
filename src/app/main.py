@@ -27,7 +27,14 @@ logger.info(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Application started", host=settings.host, port=settings.port)
+    logger.info(
+        "Application started",
+        host=settings.host,
+        port=settings.port,
+        log_level=settings.log_level,
+        log_output=settings.log_output,
+        log_file=settings.log_file_path,
+    )
     yield
     logger.info("Application shutting down")
 
