@@ -9,6 +9,7 @@ When log_sampling_rate < 1.0, a random fraction of INFO-level request logs
 are suppressed to reduce noise on high-throughput endpoints. Errors and
 warnings always emit regardless of sampling rate.
 """
+
 import random
 import time
 

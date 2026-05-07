@@ -6,6 +6,7 @@ arguments as structured fields:  logger.info("msg", key=value)
 
 Use this everywhere; don't construct loggers directly.
 """
+
 import logging
 
 
@@ -21,9 +22,7 @@ class StructuredLogger(logging.LoggerAdapter):
 
     _RESERVED = frozenset({"exc_info", "stack_info", "stacklevel", "extra"})
 
-    def process(
-        self, msg: str, kwargs: dict
-    ) -> tuple[str, dict]:
+    def process(self, msg: str, kwargs: dict) -> tuple[str, dict]:
         structured: dict = dict(self.extra) if self.extra else {}
 
         # Extract non-reserved kwargs into structured data.

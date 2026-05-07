@@ -1,6 +1,7 @@
 """
 logging/decorators.py — Function-level logging decorators.
 """
+
 import functools
 import inspect
 import time
@@ -21,6 +22,7 @@ def log_call(logger: Any = None, level: str = "debug") -> Callable:
         log_fn = getattr(log, level.lower())
 
         if inspect.iscoroutinefunction(func):
+
             @functools.wraps(func)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
                 log_fn(
@@ -49,8 +51,10 @@ def log_call(logger: Any = None, level: str = "debug") -> Callable:
                         duration_ms=duration_ms,
                     )
                     raise
+
             return async_wrapper
         else:
+
             @functools.wraps(func)
             def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
                 log_fn(
@@ -79,6 +83,7 @@ def log_call(logger: Any = None, level: str = "debug") -> Callable:
                         duration_ms=duration_ms,
                     )
                     raise
+
             return sync_wrapper
 
     return decorator
@@ -95,6 +100,7 @@ def log_performance(threshold_ms: float = 500, level: str = "warning") -> Callab
         log_fn = getattr(log, level.lower())
 
         if inspect.iscoroutinefunction(func):
+
             @functools.wraps(func)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
                 start = time.monotonic()
@@ -108,8 +114,10 @@ def log_performance(threshold_ms: float = 500, level: str = "warning") -> Callab
                         threshold_ms=threshold_ms,
                     )
                 return result
+
             return async_wrapper
         else:
+
             @functools.wraps(func)
             def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
                 start = time.monotonic()
@@ -123,6 +131,7 @@ def log_performance(threshold_ms: float = 500, level: str = "warning") -> Callab
                         threshold_ms=threshold_ms,
                     )
                 return result
+
             return sync_wrapper
 
     return decorator

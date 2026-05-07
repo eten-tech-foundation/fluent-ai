@@ -1,6 +1,7 @@
 """
 main.py — FastAPI application factory for the Fluent AI service.
 """
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -27,6 +28,7 @@ logger.info(
     environment=settings.environment,
 )
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(
@@ -39,6 +41,7 @@ async def lifespan(app: FastAPI):
     )
     yield
     logger.info("Application shutting down")
+
 
 # --------------------------------------------------------------------------- #
 # Error response OpenAPI examples shared across all routers
@@ -88,6 +91,7 @@ app.include_router(api_v1_router)
 # GET /docs provides interactive API documentation
 # GET /redoc provides alternative interactive API documentation
 # GET /openapi.json provides OpenAPI schema
+
 
 @app.get("/")
 async def root():

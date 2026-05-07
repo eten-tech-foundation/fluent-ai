@@ -7,6 +7,7 @@ Covers:
   - Sensitive data redaction
   - Structured logger keyword forwarding
 """
+
 import json
 import logging
 import os
@@ -198,8 +199,13 @@ class TestSensitiveDataRedaction:
     def test_sensitive_data_filter_scrubs_record(self):
         """SensitiveDataFilter should scrub _structured dict on a log record."""
         record = logging.LogRecord(
-            name="test", level=logging.INFO, pathname="",
-            lineno=0, msg="test", args=(), exc_info=None,
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="test",
+            args=(),
+            exc_info=None,
         )
         record._structured = {"user": "alice", "password": "s3cret"}  # type: ignore[attr-defined]
 
@@ -257,8 +263,13 @@ class TestJsonFormatter:
     def test_produces_valid_json(self):
         formatter = JsonFormatter(app_name="TestApp", environment="test")
         record = logging.LogRecord(
-            name="test", level=logging.INFO, pathname="",
-            lineno=0, msg="hello world", args=(), exc_info=None,
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="hello world",
+            args=(),
+            exc_info=None,
         )
         record.request_id = "req-123"  # type: ignore[attr-defined]
         record.correlation_id = ""  # type: ignore[attr-defined]
@@ -277,9 +288,15 @@ class TestJsonFormatter:
             raise ValueError("boom")
         except ValueError:
             import sys
+
             record = logging.LogRecord(
-                name="test", level=logging.ERROR, pathname="",
-                lineno=0, msg="error", args=(), exc_info=sys.exc_info(),
+                name="test",
+                level=logging.ERROR,
+                pathname="",
+                lineno=0,
+                msg="error",
+                args=(),
+                exc_info=sys.exc_info(),
             )
 
         output = formatter.format(record)

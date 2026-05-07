@@ -21,6 +21,7 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 _header_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
 
+
 async def _extract_raw_key(
     request: Request,
     header_key: str | None = Security(_header_scheme),
@@ -34,9 +35,11 @@ async def _extract_raw_key(
         )
     return raw_key
 
+
 # ---------------------------------------------------------------------------
 # Core dependency — validates key and attaches record to request state
 # ---------------------------------------------------------------------------
+
 
 async def require_api_key(
     request: Request,
@@ -80,6 +83,7 @@ async def require_api_key(
 # ---------------------------------------------------------------------------
 # Admin dependency — extends require_api_key with permission check
 # ---------------------------------------------------------------------------
+
 
 async def require_admin(
     api_key: ApiKey = Depends(require_api_key),

@@ -61,7 +61,9 @@ async def patch_key(
     logger.debug("API key patch requested", key_id=str(key_id))
     record = await update_api_key(db, key_id, payload)
     if record is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="API key not found."
+        )
     return record
 
 
@@ -78,7 +80,9 @@ async def revoke_key(
     logger.debug("API key revoke requested", key_id=str(key_id))
     record = await revoke_api_key(db, key_id)
     if record is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="API key not found."
+        )
 
 
 @router.get(

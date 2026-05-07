@@ -6,20 +6,41 @@ Contains:
   - RequestContextFilter  — injects request_id / correlation_id into records
   - SensitiveDataFilter   — scrubs _structured dict on every record
 """
+
 import logging
 import re
 import urllib.parse
 from typing import Any
 
-_SENSITIVE_KEYS: frozenset[str] = frozenset({
-    "password", "passwd", "secret", "token", "api_key", "apikey",
-    "authorization", "x-api-key", "key_hash", "raw_key", "credit_card",
-    "ssn", "access_token", "refresh_token", "private_key",
-})
+_SENSITIVE_KEYS: frozenset[str] = frozenset(
+    {
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "api_key",
+        "apikey",
+        "authorization",
+        "x-api-key",
+        "key_hash",
+        "raw_key",
+        "credit_card",
+        "ssn",
+        "access_token",
+        "refresh_token",
+        "private_key",
+    }
+)
 
-_SENSITIVE_QUERY_PARAMS: frozenset[str] = frozenset({
-    "token", "key", "secret", "password", "api_key",
-})
+_SENSITIVE_QUERY_PARAMS: frozenset[str] = frozenset(
+    {
+        "token",
+        "key",
+        "secret",
+        "password",
+        "api_key",
+    }
+)
 
 _EMAIL_RE = re.compile(r"^([^@]+)(@.+)$")
 
@@ -39,8 +60,7 @@ def scrub_dict(data: dict[str, Any]) -> dict[str, Any]:
             result[key] = scrub_dict(value)
         elif isinstance(value, list):
             result[key] = [
-                scrub_dict(item) if isinstance(item, dict) else item
-                for item in value
+                scrub_dict(item) if isinstance(item, dict) else item for item in value
             ]
         else:
             result[key] = value

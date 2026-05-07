@@ -84,16 +84,12 @@ async def get_api_key_by_hash(db: AsyncSession, raw_key: str) -> ApiKey | None:
 
 
 async def get_api_key_by_id(db: AsyncSession, key_id: uuid.UUID) -> ApiKey | None:
-    result = await db.execute(
-        select(ApiKey).where(ApiKey.id == key_id)
-    )
+    result = await db.execute(select(ApiKey).where(ApiKey.id == key_id))
     return result.scalar_one_or_none()
 
 
 async def list_api_keys(db: AsyncSession) -> list[ApiKeyInfo]:
-    result = await db.execute(
-        select(ApiKey).order_by(ApiKey.created_at.desc())
-    )
+    result = await db.execute(select(ApiKey).order_by(ApiKey.created_at.desc()))
     keys = result.scalars().all()
     logger.debug("API keys listed", count=len(keys))
     return [ApiKeyInfo.model_validate(r) for r in keys]

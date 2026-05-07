@@ -10,7 +10,12 @@ without leaking internal database details to callers.
 """
 
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError, TimeoutError
+from sqlalchemy.exc import (
+    IntegrityError,
+    OperationalError,
+    SQLAlchemyError,
+    TimeoutError,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors.codes import ErrorCode

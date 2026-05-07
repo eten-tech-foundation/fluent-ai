@@ -29,6 +29,7 @@ from app.middleware.request_id import RequestIDMiddleware
 # Minimal test app
 # ---------------------------------------------------------------------------
 
+
 def _make_test_app() -> FastAPI:
     _app = FastAPI()
     _app.add_middleware(RequestIDMiddleware)
@@ -40,11 +41,15 @@ def _make_test_app() -> FastAPI:
 
     @_app.get("/raise/authentication")
     async def _raise_authentication():
-        raise AuthenticationException(message="who are you", code=ErrorCode.AUTHENTICATION_REQUIRED)
+        raise AuthenticationException(
+            message="who are you", code=ErrorCode.AUTHENTICATION_REQUIRED
+        )
 
     @_app.get("/raise/authorization")
     async def _raise_authorization():
-        raise AuthorizationException(message="not allowed", code=ErrorCode.AUTHORIZATION_DENIED)
+        raise AuthorizationException(
+            message="not allowed", code=ErrorCode.AUTHORIZATION_DENIED
+        )
 
     @_app.get("/raise/not-found")
     async def _raise_not_found():
@@ -88,6 +93,7 @@ def ec():
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _error(response) -> dict:
     """Extract the inner error dict from an ErrorResponse envelope."""
     body = response.json()
@@ -98,6 +104,7 @@ def _error(response) -> dict:
 # ---------------------------------------------------------------------------
 # Envelope shape
 # ---------------------------------------------------------------------------
+
 
 class TestErrorEnvelope:
     """Every error response wraps its payload in the standard envelope."""
@@ -116,6 +123,7 @@ class TestErrorEnvelope:
 
     def test_timestamp_is_iso8601(self, ec):
         from datetime import datetime
+
         r = ec.get("/raise/not-found")
         ts = _error(r)["timestamp"]
         datetime.fromisoformat(ts)  # raises if not valid ISO-8601
@@ -124,6 +132,7 @@ class TestErrorEnvelope:
 # ---------------------------------------------------------------------------
 # Exception type → status code + error code
 # ---------------------------------------------------------------------------
+
 
 class TestExceptionHandlers:
     def test_validation_exception_returns_400(self, ec):
@@ -181,6 +190,7 @@ class TestExceptionHandlers:
 # Security properties
 # ---------------------------------------------------------------------------
 
+
 class TestSecurityProperties:
     def test_database_exception_details_suppressed(self, ec):
         """DB details (table names, query info) must never be returned to clients."""
@@ -213,6 +223,7 @@ class TestSecurityProperties:
 # ---------------------------------------------------------------------------
 # Request ID middleware
 # ---------------------------------------------------------------------------
+
 
 class TestRequestID:
     def test_x_request_id_header_present_on_error(self, ec):

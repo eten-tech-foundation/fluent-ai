@@ -38,6 +38,7 @@ RAW_KEY = "fai_test_rawkey_abc123"
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _api_key(key_id, permissions, *, owner_user_id=None, is_active=True):
     record = ApiKey()
     record.id = key_id
@@ -55,6 +56,7 @@ def _api_key(key_id, permissions, *, owner_user_id=None, is_active=True):
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def admin_record():
@@ -98,23 +100,38 @@ def non_admin_client(client, user_record):
 # Auth behaviour
 # ---------------------------------------------------------------------------
 
+
 class TestAuthBehaviour:
     def test_unknown_key_returns_401(self, client):
-        with patch("app.security.auth.get_api_key_by_hash", new_callable=AsyncMock, return_value=None):
+        with patch(
+            "app.security.auth.get_api_key_by_hash",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
             response = client.get("/api-keys/me", headers={"X-API-Key": "fai_unknown"})
         assert response.status_code == 401
 
     def test_inactive_key_returns_401(self, client):
         """Service layer filters inactive keys before returning — result is None → 401."""
-        with patch("app.security.auth.get_api_key_by_hash", new_callable=AsyncMock, return_value=None):
-            response = client.get("/api-keys/me", headers={"X-API-Key": "fai_some_revoked_key"})
+        with patch(
+            "app.security.auth.get_api_key_by_hash",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            response = client.get(
+                "/api-keys/me", headers={"X-API-Key": "fai_some_revoked_key"}
+            )
         assert response.status_code == 401
 
     def test_revoked_key_record_returns_403(self, client):
         """A record returned with is_active=False is treated as revoked → 403."""
         revoked = _api_key(USER_ID, [])
         revoked.is_active = False
-        with patch("app.security.auth.get_api_key_by_hash", new_callable=AsyncMock, return_value=revoked):
+        with patch(
+            "app.security.auth.get_api_key_by_hash",
+            new_callable=AsyncMock,
+            return_value=revoked,
+        ):
             response = client.get("/api-keys/me", headers={"X-API-Key": "fai_revoked"})
         assert response.status_code == 403
         assert response.json()["error"]["code"] == ErrorCode.AUTHORIZATION_DENIED
@@ -122,7 +139,11 @@ class TestAuthBehaviour:
     def test_expired_key_returns_403(self, client):
         expired = _api_key(USER_ID, [])
         expired.expires_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
-        with patch("app.security.auth.get_api_key_by_hash", new_callable=AsyncMock, return_value=expired):
+        with patch(
+            "app.security.auth.get_api_key_by_hash",
+            new_callable=AsyncMock,
+            return_value=expired,
+        ):
             response = client.get("/api-keys/me", headers={"X-API-Key": "fai_expired"})
         assert response.status_code == 403
         assert response.json()["error"]["code"] == ErrorCode.TOKEN_EXPIRED
@@ -131,6 +152,7 @@ class TestAuthBehaviour:
 # ---------------------------------------------------------------------------
 # POST /api-keys/
 # ---------------------------------------------------------------------------
+
 
 class TestCreateKey:
     def test_no_auth_returns_401(self, client):
@@ -150,8 +172,15 @@ class TestCreateKey:
             created_at=NOW,
             expires_at=None,
         )
-        with patch("app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock, return_value=created):
-            response = admin_client.post("/api-keys/", json={"name": "new-key", "permissions": [], "owner_user_id": 1})
+        with patch(
+            "app.api.v1.endpoints.api_keys.create_api_key",
+            new_callable=AsyncMock,
+            return_value=created,
+        ):
+            response = admin_client.post(
+                "/api-keys/",
+                json={"name": "new-key", "permissions": [], "owner_user_id": 1},
+            )
 
         assert response.status_code == 201
         body = response.json()
@@ -162,52 +191,90 @@ class TestCreateKey:
     def test_raw_key_absent_from_schema_after_creation(self, admin_client):
         """raw_key is a one-time value — ApiKeyInfo never includes it."""
         created = ApiKeyCreated(
-            id=KEY_ID, name="k", permissions=[], raw_key=RAW_KEY, created_at=NOW, expires_at=None,
+            id=KEY_ID,
+            name="k",
+            permissions=[],
+            raw_key=RAW_KEY,
+            created_at=NOW,
+            expires_at=None,
         )
-        with patch("app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock, return_value=created):
-            response = admin_client.post("/api-keys/", json={"name": "k", "owner_user_id": 1})
+        with patch(
+            "app.api.v1.endpoints.api_keys.create_api_key",
+            new_callable=AsyncMock,
+            return_value=created,
+        ):
+            response = admin_client.post(
+                "/api-keys/", json={"name": "k", "owner_user_id": 1}
+            )
 
         assert "raw_key" in response.json()
         assert "key_hash" not in response.json()
 
     def test_missing_name_returns_422(self, admin_client):
-        with patch("app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock):
-            response = admin_client.post("/api-keys/", json={"permissions": [], "owner_user_id": 1})
+        with patch(
+            "app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock
+        ):
+            response = admin_client.post(
+                "/api-keys/", json={"permissions": [], "owner_user_id": 1}
+            )
         assert response.status_code == 422
 
     def test_empty_name_returns_422(self, admin_client):
-        with patch("app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock):
-            response = admin_client.post("/api-keys/", json={"name": "", "owner_user_id": 1})
+        with patch(
+            "app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock
+        ):
+            response = admin_client.post(
+                "/api-keys/", json={"name": "", "owner_user_id": 1}
+            )
         assert response.status_code == 422
 
     def test_no_owner_returns_422(self, admin_client):
-        with patch("app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock):
+        with patch(
+            "app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock
+        ):
             response = admin_client.post("/api-keys/", json={"name": "k"})
         assert response.status_code == 422
 
     def test_both_owners_returns_422(self, admin_client):
-        with patch("app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock):
-            response = admin_client.post("/api-keys/", json={"name": "k", "owner_user_id": 1, "owner_org_id": 2})
+        with patch(
+            "app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock
+        ):
+            response = admin_client.post(
+                "/api-keys/", json={"name": "k", "owner_user_id": 1, "owner_org_id": 2}
+            )
         assert response.status_code == 422
 
     @pytest.mark.parametrize("field", ["owner_user_id", "owner_org_id"])
     def test_zero_owner_id_returns_422(self, admin_client, field):
-        with patch("app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock):
+        with patch(
+            "app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock
+        ):
             response = admin_client.post("/api-keys/", json={"name": "k", field: 0})
         assert response.status_code == 422
 
     @pytest.mark.parametrize("field", ["owner_user_id", "owner_org_id"])
     def test_negative_owner_id_returns_422(self, admin_client, field):
-        with patch("app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock):
+        with patch(
+            "app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock
+        ):
             response = admin_client.post("/api-keys/", json={"name": "k", field: -1})
         assert response.status_code == 422
 
     @pytest.mark.parametrize("field", ["owner_user_id", "owner_org_id"])
     def test_valid_owner_id_accepted(self, admin_client, field):
         created = ApiKeyCreated(
-            id=KEY_ID, name="k", permissions=[], raw_key=RAW_KEY, created_at=NOW, expires_at=None,
+            id=KEY_ID,
+            name="k",
+            permissions=[],
+            raw_key=RAW_KEY,
+            created_at=NOW,
+            expires_at=None,
         )
-        with patch("app.api.v1.endpoints.api_keys.create_api_key", new_callable=AsyncMock, return_value=created):
+        with patch(
+            "app.api.v1.endpoints.api_keys.create_api_key",
+            new_callable=AsyncMock,
+            return_value=created,
+        ):
             response = admin_client.post("/api-keys/", json={"name": "k", field: 1})
         assert response.status_code == 201
 
@@ -215,6 +282,7 @@ class TestCreateKey:
 # ---------------------------------------------------------------------------
 # GET /api-keys/
 # ---------------------------------------------------------------------------
+
 
 class TestListKeys:
     def test_no_auth_returns_401(self, client):
@@ -224,7 +292,11 @@ class TestListKeys:
         assert non_admin_client.get("/api-keys/").status_code == 403
 
     def test_returns_200_with_list(self, admin_client, admin_record):
-        with patch("app.api.v1.endpoints.api_keys.list_api_keys", new_callable=AsyncMock, return_value=[admin_record]):
+        with patch(
+            "app.api.v1.endpoints.api_keys.list_api_keys",
+            new_callable=AsyncMock,
+            return_value=[admin_record],
+        ):
             response = admin_client.get("/api-keys/")
 
         assert response.status_code == 200
@@ -233,7 +305,11 @@ class TestListKeys:
         assert len(body) == 1
 
     def test_no_raw_key_or_hash_in_response(self, admin_client, admin_record):
-        with patch("app.api.v1.endpoints.api_keys.list_api_keys", new_callable=AsyncMock, return_value=[admin_record]):
+        with patch(
+            "app.api.v1.endpoints.api_keys.list_api_keys",
+            new_callable=AsyncMock,
+            return_value=[admin_record],
+        ):
             response = admin_client.get("/api-keys/")
 
         for item in response.json():
@@ -241,7 +317,11 @@ class TestListKeys:
             assert "key_hash" not in item
 
     def test_empty_list(self, admin_client):
-        with patch("app.api.v1.endpoints.api_keys.list_api_keys", new_callable=AsyncMock, return_value=[]):
+        with patch(
+            "app.api.v1.endpoints.api_keys.list_api_keys",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
             response = admin_client.get("/api-keys/")
 
         assert response.status_code == 200
@@ -252,28 +332,50 @@ class TestListKeys:
 # PATCH /api-keys/{key_id}
 # ---------------------------------------------------------------------------
 
+
 class TestPatchKey:
     def test_no_auth_returns_401(self, client):
-        assert client.patch(f"/api-keys/{KEY_ID}", json={"name": "x"}).status_code == 401
+        assert (
+            client.patch(f"/api-keys/{KEY_ID}", json={"name": "x"}).status_code == 401
+        )
 
     def test_non_admin_returns_403(self, non_admin_client):
-        assert non_admin_client.patch(f"/api-keys/{KEY_ID}", json={"name": "x"}).status_code == 403
+        assert (
+            non_admin_client.patch(
+                f"/api-keys/{KEY_ID}", json={"name": "x"}
+            ).status_code
+            == 403
+        )
 
     def test_not_found_returns_404(self, admin_client):
-        with patch("app.api.v1.endpoints.api_keys.update_api_key", new_callable=AsyncMock, return_value=None):
+        with patch(
+            "app.api.v1.endpoints.api_keys.update_api_key",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
             response = admin_client.patch(f"/api-keys/{KEY_ID}", json={"name": "x"})
         assert response.status_code == 404
 
     def test_returns_updated_record(self, admin_client, admin_record):
         admin_record.name = "renamed"
-        with patch("app.api.v1.endpoints.api_keys.update_api_key", new_callable=AsyncMock, return_value=admin_record):
-            response = admin_client.patch(f"/api-keys/{KEY_ID}", json={"name": "renamed"})
+        with patch(
+            "app.api.v1.endpoints.api_keys.update_api_key",
+            new_callable=AsyncMock,
+            return_value=admin_record,
+        ):
+            response = admin_client.patch(
+                f"/api-keys/{KEY_ID}", json={"name": "renamed"}
+            )
 
         assert response.status_code == 200
         assert response.json()["name"] == "renamed"
 
     def test_no_raw_key_in_response(self, admin_client, admin_record):
-        with patch("app.api.v1.endpoints.api_keys.update_api_key", new_callable=AsyncMock, return_value=admin_record):
+        with patch(
+            "app.api.v1.endpoints.api_keys.update_api_key",
+            new_callable=AsyncMock,
+            return_value=admin_record,
+        ):
             response = admin_client.patch(f"/api-keys/{KEY_ID}", json={"name": "x"})
 
         assert "raw_key" not in response.json()
@@ -284,6 +386,7 @@ class TestPatchKey:
 # DELETE /api-keys/{key_id}
 # ---------------------------------------------------------------------------
 
+
 class TestRevokeKey:
     def test_no_auth_returns_401(self, client):
         assert client.delete(f"/api-keys/{KEY_ID}").status_code == 401
@@ -293,12 +396,20 @@ class TestRevokeKey:
 
     def test_returns_204(self, admin_client, admin_record):
         admin_record.is_active = False
-        with patch("app.api.v1.endpoints.api_keys.revoke_api_key", new_callable=AsyncMock, return_value=admin_record):
+        with patch(
+            "app.api.v1.endpoints.api_keys.revoke_api_key",
+            new_callable=AsyncMock,
+            return_value=admin_record,
+        ):
             response = admin_client.delete(f"/api-keys/{KEY_ID}")
         assert response.status_code == 204
 
     def test_not_found_returns_404(self, admin_client):
-        with patch("app.api.v1.endpoints.api_keys.revoke_api_key", new_callable=AsyncMock, return_value=None):
+        with patch(
+            "app.api.v1.endpoints.api_keys.revoke_api_key",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
             response = admin_client.delete(f"/api-keys/{KEY_ID}")
         assert response.status_code == 404
 
@@ -306,6 +417,7 @@ class TestRevokeKey:
 # ---------------------------------------------------------------------------
 # GET /api-keys/me
 # ---------------------------------------------------------------------------
+
 
 class TestGetMyKey:
     def test_no_auth_returns_401(self, client):

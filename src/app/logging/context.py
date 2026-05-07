@@ -5,6 +5,7 @@ RequestIDMiddleware sets the context var once per request. The logging
 filter chain reads it, so every log call in the request automatically
 carries request_id — no manual wiring in routers or services.
 """
+
 import contextvars
 
 _request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(

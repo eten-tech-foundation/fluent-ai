@@ -4,6 +4,7 @@ errors/logging.py — Structured logging utilities for exception tracking.
 Delegates to app.logging (stdlib). Public API is unchanged — handlers.py
 imports get_logger and log_exception from here with no modification needed.
 """
+
 import logging
 from typing import Any
 

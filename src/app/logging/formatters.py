@@ -4,6 +4,7 @@ logging/formatters.py — Custom log formatters for production and development.
 JsonFormatter:  one JSON object per line (production).
 DevFormatter:   coloured, human-readable output (development).
 """
+
 import json
 import logging
 from datetime import datetime, timezone
@@ -62,10 +63,10 @@ class DevFormatter(logging.Formatter):
     """Coloured, human-readable output for development."""
 
     _COLORS: dict[str, str] = {
-        "DEBUG": "\033[36m",     # Cyan
-        "INFO": "\033[32m",      # Green
-        "WARNING": "\033[33m",   # Yellow
-        "ERROR": "\033[31m",     # Red
+        "DEBUG": "\033[36m",  # Cyan
+        "INFO": "\033[32m",  # Green
+        "WARNING": "\033[33m",  # Yellow
+        "ERROR": "\033[31m",  # Red
         "CRITICAL": "\033[35m",  # Magenta
     }
     _RESET = "\033[0m"
@@ -76,9 +77,9 @@ class DevFormatter(logging.Formatter):
         reset = self._RESET
         dim = self._DIM
 
-        ts = datetime.fromtimestamp(
-            record.created, tz=timezone.utc
-        ).strftime("%Y-%m-%d %H:%M:%S")
+        ts = datetime.fromtimestamp(record.created, tz=timezone.utc).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
 
         request_id = getattr(record, "request_id", "")
         rid_part = f" {dim}{request_id}{reset}" if request_id else ""

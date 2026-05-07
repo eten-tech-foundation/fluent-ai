@@ -25,6 +25,7 @@ class ApiKeyCreate(BaseModel):
 
 class ApiKeyCreated(BaseModel):
     """Returned once at creation — raw key is never stored and cannot be retrieved again."""
+
     id: uuid.UUID
     name: str
     permissions: list[str]
@@ -37,6 +38,7 @@ class ApiKeyCreated(BaseModel):
 
 class ApiKeyInfo(BaseModel):
     """Safe read model — never exposes key_hash or raw_key."""
+
     id: uuid.UUID
     name: str
     permissions: list[str]

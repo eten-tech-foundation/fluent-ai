@@ -22,6 +22,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.logging.context import set_request_context
 
+
 class RequestIDMiddleware(BaseHTTPMiddleware):
     """Attach a unique request ID to every inbound request and response."""
 

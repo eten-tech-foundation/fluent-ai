@@ -38,7 +38,9 @@ async def list_projects(
 ) -> ProjectListResponse:
     logger.debug("Listing projects", limit=limit, offset=offset)
     projects, total = await projects_crud.get_projects(db, limit=limit, offset=offset)
-    logger.info("Projects listed", count=len(projects), total=total, limit=limit, offset=offset)
+    logger.info(
+        "Projects listed", count=len(projects), total=total, limit=limit, offset=offset
+    )
     return ProjectListResponse(
         items=[ProjectResponse.model_validate(p) for p in projects],
         total=total,

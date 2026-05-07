@@ -1,6 +1,7 @@
 """
 tests/conftest.py — Shared pytest fixtures for the Fluent AI test suite.
 """
+
 import pytest
 from fastapi.testclient import TestClient
 

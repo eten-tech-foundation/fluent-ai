@@ -4,6 +4,7 @@ logging/config.py — One-time logging setup for the whole application.
 Call configure_logging(settings) before FastAPI app creation in main.py.
 Uses only Python's stdlib logging module — no third-party dependencies.
 """
+
 import logging
 import logging.handlers
 import sys
@@ -68,9 +69,9 @@ def configure_logging(settings: Settings) -> None:
 
     # Force uvicorn to use our root handlers instead of its own
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
-        l = logging.getLogger(name)
-        l.handlers.clear()
-        l.propagate = True
+        logger = logging.getLogger(name)
+        logger.handlers.clear()
+        logger.propagate = True
 
     # Silence noisy third-party loggers
     for name in ("uvicorn.access", "sqlalchemy.engine", "httpx"):

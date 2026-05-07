@@ -13,13 +13,13 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
-    
+
     # Application
     app_name: str = Field(default="Fluent AI API")
     app_version: str = Field(default="0.1.0")
     debug: bool = Field(default=False)
     environment: str = Field(default="development")
-    
+
     # Server
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8200)
@@ -33,15 +33,13 @@ class Settings(BaseSettings):
     )
 
     # Connection pool settings
-    db_pool_size: int = Field(default=5)       # number of persistent connections
-    db_max_overflow: int = Field(default=10)   # extra connections above pool_size
-    db_pool_timeout: int = Field(default=30)   # seconds to wait for a connection
-    db_pool_recycle: int = Field(default=1800) # recycle connections after 30 min
+    db_pool_size: int = Field(default=5)  # number of persistent connections
+    db_max_overflow: int = Field(default=10)  # extra connections above pool_size
+    db_pool_timeout: int = Field(default=30)  # seconds to wait for a connection
+    db_pool_recycle: int = Field(default=1800)  # recycle connections after 30 min
 
     # Security
-    secret_key: str = Field(
-        default="your-secret-key-change-in-production"
-    )
+    secret_key: str = Field(default="your-secret-key-change-in-production")
 
     # API Keys
     api_key_default_expiry_days: int | None = Field(
@@ -105,12 +103,12 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = Field(default=None)
     google_ai_api_key: str | None = Field(default=None)
     google_ai_model: str = Field(default="gemini-2.5-flash-lite")
-    
+
     @property
     def is_production(self) -> bool:
         """Check if running in production environment."""
         return self.environment == "production"
-    
+
     @property
     def is_development(self) -> bool:
         """Check if running in development environment."""
