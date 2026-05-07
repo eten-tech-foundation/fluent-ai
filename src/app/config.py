@@ -103,6 +103,8 @@ class Settings(BaseSettings):
     # External AI Services
     openai_api_key: str | None = Field(default=None)
     anthropic_api_key: str | None = Field(default=None)
+    google_ai_api_key: str | None = Field(default=None)
+    google_ai_model: str = Field(default="gemini-2.5-flash-lite")
     
     @property
     def is_production(self) -> bool:
@@ -133,4 +135,4 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     """Get application settings (cached)."""
-    return Settings()
+    return Settings()  # type: ignore[call-arg]
