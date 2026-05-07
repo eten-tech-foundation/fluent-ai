@@ -175,6 +175,7 @@ function Start-AiContainer {
         "-v", "${ScriptDir}\docker-entrypoint.sh:/app/docker-entrypoint.sh:ro",
         "--tmpfs", "/tmp:nosuid,size=64m",
         "--tmpfs", "/app/.cache:noexec,nosuid,size=128m",
+        "-v", "fluent-ai-logs:/app/logs",
         "--security-opt", "no-new-privileges:true",
         "--cap-drop", "ALL",
         "--user", "1001:1001",
@@ -279,6 +280,10 @@ function Podman-Build([string]$svc = "ai") {
     }
 }
 
+function Podman-DbPsql {
+    & $Runtime exec -it fluent-ai-db psql -U postgres -d fluent
+}
+
 # ── Docker Compose command functions ──────────────────────────────────────────
 
 function Compose-Up([string]$svc = "") {
@@ -334,6 +339,24 @@ function Compose-Build([string]$svc = "") {
     }
 }
 
+function Compose-DbPsql {
+    Invoke-Compose @("exec", "db", "psql", "-U", "postgres", "-d", "fluent")
+}
+
+function Podman-Logs([string]$svc = "") {
+    if ($svc) {
+        # Route through pod logs --container to avoid direct name-resolution bugs
+        # in some podman builds where 'podman logs <hyphenated-name>' fails.
+        & $Runtime pod logs --container "fluent-ai-$svc" -f $PodName
+    } else {
+        & $Runtime pod logs -f $PodName
+    }
+}
+
+function Compose-Logs([string[]]$logArgs) {
+    Invoke-Compose (@("logs", "-f") + $logArgs)
+}
+
 # ── Exec-AI dispatch ──────────────────────────────────────────────────────────
 
 function Exec-Ai([string[]]$cmdArgs) {
@@ -361,40 +384,30 @@ $svcArg = if ($Service) { $Service } else { "" }
 switch ($Command) {
     "up" {
         if ($RuntimeMode -eq "podman-pod") {
-            Podman-Up ($svcArg -or "all")
+            Podman-Up (if ($svcArg) { $svcArg } else { "all" })
         } else {
             Compose-Up $svcArg
         }
     }
     "down" {
         if ($RuntimeMode -eq "podman-pod") {
-            Podman-Down ($svcArg -or "all")
+            Podman-Down (if ($svcArg) { $svcArg } else { "all" })
         } else {
             Compose-Down $svcArg
         }
     }
     "restart" {
         if ($RuntimeMode -eq "podman-pod") {
-            Podman-Restart ($svcArg -or "all")
+            Podman-Restart (if ($svcArg) { $svcArg } else { "all" })
         } else {
             Compose-Restart $svcArg
         }
     }
     "logs" {
         if ($RuntimeMode -eq "podman-pod") {
-            if ($svcArg) {
-                # Route through pod logs --container to avoid direct name-resolution
-                # bugs in some podman builds where 'podman logs <hyphenated-name>' fails.
-                & $Runtime pod logs --container "fluent-ai-$svcArg" -f $PodName
-            } else {
-                & $Runtime pod logs -f $PodName
-            }
+            Podman-Logs $svcArg
         } else {
-            if ($svcArg) {
-                Invoke-Compose @("logs", "-f", $svcArg)
-            } else {
-                Invoke-Compose @("logs", "-f")
-            }
+            Compose-Logs $Args
         }
     }
     "status" {
@@ -448,9 +461,9 @@ switch ($Command) {
     }
     "db:psql" {
         if ($RuntimeMode -eq "podman-pod") {
-            & $Runtime exec -it fluent-ai-db psql -U postgres -d fluent
+            Podman-DbPsql
         } else {
-            Invoke-Compose @("exec", "db", "psql", "-U", "postgres", "-d", "fluent")
+            Compose-DbPsql
         }
     }
 
@@ -488,7 +501,7 @@ switch ($Command) {
     }
     "build" {
         if ($RuntimeMode -eq "podman-pod") {
-            Podman-Build ($svcArg -or "ai")
+            Podman-Build (if ($svcArg) { $svcArg } else { "ai" })
         } else {
             Compose-Build $svcArg
         }
