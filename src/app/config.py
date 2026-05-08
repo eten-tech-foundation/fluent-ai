@@ -1,14 +1,26 @@
+import os
 from functools import lru_cache
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _get_env_file() -> str:
+    """Get the environment-specific .env file path."""
+    env = os.getenv("ENVIRONMENT", "development")
+    if env == "production":
+        return ".env.prod"
+    # Try .env.dev first, fall back to .env
+    if os.path.exists(".env.dev"):
+        return ".env.dev"
+    return ".env"
+
+
 class Settings(BaseSettings):
     """Application settings with environment variable support."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", _get_env_file()),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
