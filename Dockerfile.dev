@@ -30,6 +30,9 @@ RUN uv sync --frozen --no-install-project
 # Copy entrypoint script (source code is bind-mounted for hot-reload)
 COPY --chown=python:python docker-entrypoint.sh ./
 
+# Create log directory for file-based logging (LOG_OUTPUT=file|both)
+RUN mkdir -p /app/logs
+
 # Set ownership for app directory
 RUN chown -R python:python /app
 

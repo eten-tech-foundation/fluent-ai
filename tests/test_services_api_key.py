@@ -43,10 +43,13 @@ class TestCreateApiKeyExpiry:
         db = _make_db()
         record = _make_db_record(explicit)
 
-        with patch("app.services.api_key.get_settings") as mock_settings, \
-             patch("app.services.api_key.ApiKey", return_value=record):
+        with (
+            patch("app.services.api_key.get_settings") as mock_settings,
+            patch("app.services.api_key.ApiKey", return_value=record),
+        ):
             mock_settings.return_value.api_key_default_expiry_days = 30
             from app.services.api_key import create_api_key
+
             result = await create_api_key(db, _payload(expires_at=explicit))
 
         assert result.expires_at == explicit
@@ -57,12 +60,15 @@ class TestCreateApiKeyExpiry:
         db = _make_db()
         record = _make_db_record(expected)
 
-        with patch("app.services.api_key.get_settings") as mock_settings, \
-             patch("app.services.api_key.ApiKey", return_value=record), \
-             patch("app.services.api_key.datetime") as mock_dt:
+        with (
+            patch("app.services.api_key.get_settings") as mock_settings,
+            patch("app.services.api_key.ApiKey", return_value=record),
+            patch("app.services.api_key.datetime") as mock_dt,
+        ):
             mock_dt.now.return_value = now
             mock_settings.return_value.api_key_default_expiry_days = 30
             from app.services.api_key import create_api_key
+
             result = await create_api_key(db, _payload())
 
         assert result.expires_at == expected
@@ -71,10 +77,13 @@ class TestCreateApiKeyExpiry:
         db = _make_db()
         record = _make_db_record(None)
 
-        with patch("app.services.api_key.get_settings") as mock_settings, \
-             patch("app.services.api_key.ApiKey", return_value=record):
+        with (
+            patch("app.services.api_key.get_settings") as mock_settings,
+            patch("app.services.api_key.ApiKey", return_value=record),
+        ):
             mock_settings.return_value.api_key_default_expiry_days = None
             from app.services.api_key import create_api_key
+
             result = await create_api_key(db, _payload())
 
         assert result.expires_at is None

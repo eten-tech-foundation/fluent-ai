@@ -5,6 +5,7 @@ These map to tables owned by the Web API (public schema).
 The AI service only has SELECT access here via role_ai_reader.
 No INSERT / UPDATE / DELETE operations should be performed on these models.
 """
+
 from __future__ import annotations
 from datetime import datetime
 from typing import Any
@@ -48,7 +49,9 @@ class Project(Base):
     is_active: Mapped[bool | None] = mapped_column(Boolean, server_default=text("true"))
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
     organization: Mapped[int] = mapped_column(Integer, nullable=False)
-    status: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'not_assigned'"))
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'not_assigned'")
+    )
     metadata_: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
@@ -61,6 +64,7 @@ class Project(Base):
 
     def __repr__(self) -> str:
         return f"<Project id={self.id} name={self.name!r} status={self.status!r}>"
+
 
 class ApiKey(Base):
     __tablename__ = "api_keys"
@@ -82,4 +86,4 @@ class ApiKey(Base):
     created_at: Column = Column(
         DateTime(timezone=True), nullable=False, default=datetime.utcnow
     )
-    expires_at: Column = Column(DateTime(timezone=True), nullable=True)        
+    expires_at: Column = Column(DateTime(timezone=True), nullable=True)

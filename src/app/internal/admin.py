@@ -26,7 +26,7 @@ async def admin_health_check():
         "status": "healthy",
         "database": "connected",
         "cache": "connected",
-        "version": "0.1.0"
+        "version": "0.1.0",
     }
 
 
@@ -49,8 +49,4 @@ async def test_ai_connectivity(
             "response": response_text,
         }
     except Exception as e:
-        return {
-            "status": "error",
-            "message": "API request failed.",
-            "error": str(e)
-        }
+        return {"status": "error", "message": "API request failed.", "error": str(e)}

@@ -44,18 +44,18 @@ def with_db_retry(
                     retries += 1
                     if retries > max_retries:
                         logger.error(
-                            "Database operation '%s' failed after %d retries.",
-                            func.__name__,
-                            max_retries,
+                            "Database operation failed after max retries",
+                            function=func.__name__,
+                            max_retries=max_retries,
                         )
                         raise
 
                     logger.warning(
-                        "Transient database error in '%s'. Retrying %d/%d in %.1fs...",
-                        func.__name__,
-                        retries,
-                        max_retries,
-                        delay,
+                        "Transient database error, retrying",
+                        function=func.__name__,
+                        attempt=retries,
+                        max_retries=max_retries,
+                        retry_delay_s=delay,
                     )
                     await asyncio.sleep(delay)
                     delay = min(delay * 2, max_delay)

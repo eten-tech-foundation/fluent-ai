@@ -137,6 +137,7 @@ start_ai_container() {
     -v "$SCRIPT_DIR/docker-entrypoint.sh:/app/docker-entrypoint.sh:ro" \
     --tmpfs /tmp:nosuid,size=64m \
     --tmpfs /app/.cache:noexec,nosuid,size=128m \
+    -v fluent-ai-logs:/app/logs \
     --security-opt no-new-privileges:true \
     --cap-drop ALL \
     --user 1001:1001 \

@@ -10,13 +10,17 @@ from app.database import get_db
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import AuthenticationException, AuthorizationException
 from app.internal.models import ApiKey
+from app.logging.utils import get_logger
 from app.services.api_key import get_api_key_by_hash
+
+logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Extractors — header preferred, query param as fallback
 # auto_error=False so we can check both and give a single clean 401
 # ---------------------------------------------------------------------------
 _header_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
+
 
 async def _extract_raw_key(
     request: Request,
@@ -31,9 +35,11 @@ async def _extract_raw_key(
         )
     return raw_key
 
+
 # ---------------------------------------------------------------------------
 # Core dependency — validates key and attaches record to request state
 # ---------------------------------------------------------------------------
+
 
 async def require_api_key(
     request: Request,
@@ -65,12 +71,19 @@ async def require_api_key(
         )
 
     request.state.api_key = record
+    logger.debug(
+        "API key authenticated",
+        key_id=str(record.id),
+        name=record.name,
+        permissions=record.permissions,
+    )
     return record
 
 
 # ---------------------------------------------------------------------------
 # Admin dependency — extends require_api_key with permission check
 # ---------------------------------------------------------------------------
+
 
 async def require_admin(
     api_key: ApiKey = Depends(require_api_key),
@@ -84,4 +97,5 @@ async def require_admin(
             message="Admin permission required.",
             code=ErrorCode.INSUFFICIENT_PERMISSIONS,
         )
+    logger.debug("Admin access granted", key_id=str(api_key.id), name=api_key.name)
     return api_key

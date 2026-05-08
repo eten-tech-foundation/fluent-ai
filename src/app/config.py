@@ -1,34 +1,37 @@
 import os
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def _get_env_file() -> str:
-    """Determine which .env file to load based on ENVIRONMENT variable."""
+    """Get the environment-specific .env file path."""
     env = os.getenv("ENVIRONMENT", "development")
     if env == "production":
         return ".env.prod"
-    return ".env.dev"
+    # Try .env.dev first, fall back to .env
+    if os.path.exists(".env.dev"):
+        return ".env.dev"
+    return ".env"
 
 
 class Settings(BaseSettings):
     """Application settings with environment variable support."""
 
     model_config = SettingsConfigDict(
-        env_file=_get_env_file(),
+        env_file=(".env", _get_env_file()),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
     )
-    
+
     # Application
     app_name: str = Field(default="Fluent AI API")
     app_version: str = Field(default="0.1.0")
     debug: bool = Field(default=False)
     environment: str = Field(default="development")
-    
+
     # Server
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8200)
@@ -42,15 +45,13 @@ class Settings(BaseSettings):
     )
 
     # Connection pool settings
-    db_pool_size: int = Field(default=5)       # number of persistent connections
-    db_max_overflow: int = Field(default=10)   # extra connections above pool_size
-    db_pool_timeout: int = Field(default=30)   # seconds to wait for a connection
-    db_pool_recycle: int = Field(default=1800) # recycle connections after 30 min
+    db_pool_size: int = Field(default=5)  # number of persistent connections
+    db_max_overflow: int = Field(default=10)  # extra connections above pool_size
+    db_pool_timeout: int = Field(default=30)  # seconds to wait for a connection
+    db_pool_recycle: int = Field(default=1800)  # recycle connections after 30 min
 
     # Security
-    secret_key: str = Field(
-        default="your-secret-key-change-in-production"
-    )
+    secret_key: str = Field(default="your-secret-key-change-in-production")
 
     # API Keys
     api_key_default_expiry_days: int | None = Field(
@@ -69,22 +70,57 @@ class Settings(BaseSettings):
     )
 
     # Error handling
-    # Set show_stack_traces=True in .env.dev to include tracebacks in logs.
-    # Never enable in production — internal details must not be leaked.
+    # Set show_stack_traces=True in .env to include tracebacks in dev.
+    # Never enable in production — enforced by _enforce_production_safety below.
     show_stack_traces: bool = Field(default=False)
     log_level: str = Field(default="INFO")
+
+    @model_validator(mode="after")
+    def _enforce_production_safety(self) -> "Settings":
+        """Force show_stack_traces off in production, regardless of env var."""
+        if self.environment == "production" and self.show_stack_traces:
+            self.show_stack_traces = False
+        return self
+
+    log_output: str = Field(
+        default="stdout",
+        description="Log destination: 'stdout', 'file', or 'both'.",
+    )
+    log_file_path: str = Field(
+        default="/app/logs/app.log",
+        description="Path for file log output. Used when log_output is 'file' or 'both'.",
+    )
+    log_rotation: bool = Field(
+        default=True,
+        description="Enable RotatingFileHandler. No effect when log_output is 'stdout'.",
+    )
+    log_rotation_max_bytes: int = Field(
+        default=10_485_760,
+        description="Max log file size in bytes before rotation (default 10 MB).",
+    )
+    log_rotation_backup_count: int = Field(
+        default=5,
+        description="Number of rotated backup files to retain.",
+    )
+    log_sampling_rate: float = Field(
+        default=1.0,
+        description=(
+            "Fraction of INFO-level request logs to emit (0.0–1.0). "
+            "1.0 = log everything. Reduce for high-throughput endpoints."
+        ),
+    )
 
     # External AI Services
     openai_api_key: str | None = Field(default=None)
     anthropic_api_key: str | None = Field(default=None)
     google_ai_api_key: str | None = Field(default=None)
     google_ai_model: str = Field(default="gemini-2.5-flash-lite")
-    
+
     @property
     def is_production(self) -> bool:
         """Check if running in production environment."""
         return self.environment == "production"
-    
+
     @property
     def is_development(self) -> bool:
         """Check if running in development environment."""
@@ -96,7 +132,7 @@ class Settings(BaseSettings):
         Ensure the database URL uses the asyncpg driver.
 
         Handles the case where DATABASE_URL is set with a plain
-        postgres:// or postgresql:// scheme (e.g. from .env.dev).
+        postgres:// or postgresql:// scheme (e.g. from .env).
         """
         url = self.database_url
         if url.startswith("postgres://"):

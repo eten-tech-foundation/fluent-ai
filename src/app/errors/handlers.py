@@ -96,7 +96,7 @@ async def _handle_authentication_exception(
 ) -> JSONResponse:
     request_id = _get_request_id(request)
     log_exception(logger, request, exc, error_code=exc.code, level=logging.WARNING)
-    
+
     # Rate limit error endpoints to prevent abuse (crude tarpit for auth failures)
     await asyncio.sleep(0.5)
 

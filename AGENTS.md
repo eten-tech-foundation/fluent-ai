@@ -100,21 +100,38 @@ src/app/                      # All Python source code
 ├── api/                      # API versioned routes
 ├── core/                     # Core configuration and utilities
 ├── crud/                     # Database CRUD operations
-├── errors/                   # Error handlers and exceptions
+├── errors/                   # Error handling subsystem
+│   ├── codes.py              # ErrorCode string constants
+│   ├── exceptions.py         # FluentAIException hierarchy
+│   ├── handlers.py           # Global exception handlers (registered in main.py)
+│   ├── logging.py            # log_exception helper (delegates to app.logging)
+│   └── schemas.py            # ErrorResponse Pydantic model
 ├── internal/                 # Internal/admin routes
-├── middleware/               # Custom middleware
+├── logging/                  # Structured logging (stdlib only, no 3rd-party deps)
+│   ├── __init__.py           # Public API: configure_logging, get_logger, etc.
+│   ├── config.py             # One-time root logger setup (dev vs prod)
+│   ├── context.py            # ContextVar storage for request_id / correlation_id
+│   ├── decorators.py         # @log_call, @log_performance function decorators
+│   ├── filters.py            # RequestContextFilter, SensitiveDataFilter, scrub helpers
+│   ├── formatters.py         # JsonFormatter (prod), DevFormatter (dev)
+│   ├── middleware.py          # LoggingMiddleware (request/response cycle logging)
+│   └── utils.py              # StructuredLogger (LoggerAdapter) + get_logger factory
+├── middleware/
+│   └── request_id.py         # RequestIDMiddleware (outermost)
 ├── models/                   # SQLAlchemy ORM models
 ├── routers/                  # Public route handlers, one file per domain entity
 ├── schemas/                  # Pydantic request/response schemas
 ├── security/                 # Security and authentication utilities
 └── services/                 # Business logic layer
 
-src/tests/                    # Test files
-tests/                        # Additional test files
+tests/                        # Test suite (pytest)
+├── conftest.py               # Shared fixtures (TestClient, mock DB session)
+├── test_logging.py           # Logging subsystem tests (safety, redaction, formatters)
+└── test_error_handlers.py    # Exception handler tests
 
 db/init/                      # SQL init scripts run on first DB start
-Dockerfile                    # Production multi-stage build
-Dockerfile.dev                # Development build (source bind-mounted)
+Dockerfile                    # Production build (non-root user, /app/logs dir)
+Dockerfile.dev                # Development build (source bind-mounted, /app/logs dir)
 compose.yaml                  # Docker Compose for standalone development
 docker-entrypoint.sh          # Container startup: init check → uv run fastapi dev
 fai.sh / fai.ps1              # Helper scripts (see Operating Modes above)
@@ -154,7 +171,7 @@ alembic.ini                   # Alembic configuration for database migrations
 - **Functions/methods:** snake_case (`get_settings`, `read_items`, `create_user`).
 - **Route handlers:** `verb_noun` pattern — `read_` for GET, `create_` for POST.
 - **Variables:** snake_case (`fake_items_db`, `item_id`).
-- **Private functions:** leading underscore (`_get_env_file`).
+- **Private functions:** leading underscore (`_enforce_production_safety`).
 - **Router variable:** always named `router` in each router module.
 - **Packages/directories:** lowercase, single word (`routers/`, `internal/`, `core/`).
 
@@ -194,6 +211,8 @@ alembic.ini                   # Alembic configuration for database migrations
   `Settings()` directly.
 - The `ENVIRONMENT` env var controls runtime behaviour (`development` / `production`).
 - Secrets and API keys must never be committed. Use `.env.example` as a template.
+- `show_stack_traces` is enforced off in production via a Pydantic `model_validator` —
+  even if the env var is set to `true`, the validator silently overrides it to `False`.
 
 ### Formatting
 
@@ -223,6 +242,19 @@ cp .env.example .env   # then fill in API keys and credentials
 
 Key env vars: `APP_NAME`, `APP_VERSION`, `DEBUG`, `ENVIRONMENT`, `DATABASE_URL`,
 `SECRET_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`.
+
+### Logging env vars
+
+| Variable | Default | Description |
+|---|---|---|
+| `LOG_LEVEL` | `INFO` | Root log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
+| `SHOW_STACK_TRACES` | `false` | Include tracebacks in logs. **Forced off in production.** |
+| `LOG_OUTPUT` | `stdout` | Log destination: `stdout`, `file`, or `both` |
+| `LOG_FILE_PATH` | `/app/logs/app.log` | Path for file output (when `LOG_OUTPUT` is `file` or `both`) |
+| `LOG_ROTATION` | `true` | Enable `RotatingFileHandler` for file output |
+| `LOG_ROTATION_MAX_BYTES` | `10485760` | Max file size before rotation (10 MB) |
+| `LOG_ROTATION_BACKUP_COUNT` | `5` | Number of rotated backup files to keep |
+| `LOG_SAMPLING_RATE` | `1.0` | Fraction of INFO-level request logs to emit (0.0–1.0) |
 
 When running standalone (`./fai.sh up`), `DATABASE_URL` defaults to
 `postgresql+asyncpg://postgres:postgres@localhost:5432/fluent` (connecting to the local DB
@@ -274,3 +306,67 @@ also bind-mounted so dependency/entrypoint changes take effect without a full re
 executes any pending migrations/seeds, touches the sentinel, then starts the server.
 The sentinel lives in `/tmp` (tmpfs) so it resets on each container restart — this is
 intentional during development.
+
+## Structured Logging
+
+The logging subsystem lives in `src/app/logging/` and uses **only Python's stdlib
+`logging` module** — no third-party dependencies (no structlog, no loguru).
+
+### Architecture
+
+```
+main.py
+  └── configure_logging(settings)     # One-time root logger setup
+      ├── DevFormatter (development)  # Coloured, human-readable
+      └── JsonFormatter (production)  # One JSON object per line
+
+RequestIDMiddleware (outermost)       # Assigns request_id + correlation_id
+  └── LoggingMiddleware               # Logs request start/end with timing
+      └── RequestContextFilter        # Injects request_id into every log record
+      └── SensitiveDataFilter         # Scrubs passwords, tokens, API keys
+```
+
+### Usage
+
+```python
+from app.logging import get_logger
+
+logger = get_logger(__name__)
+logger.info("User created", user_id="u123", role="admin")
+# Keyword args become structured fields (_structured dict on the log record).
+```
+
+Use `get_logger(__name__)` everywhere — never construct loggers directly.
+
+### Decorators
+
+```python
+from app.logging import log_call, log_performance
+
+@log_call()                      # Logs entry, exit, and exceptions
+async def create_user(...): ...
+
+@log_performance(threshold_ms=500)  # Warns when execution exceeds threshold
+async def heavy_query(...): ...
+```
+
+### Production safety
+
+- `SHOW_STACK_TRACES` is enforced off in production by a Pydantic `model_validator` in
+  `config.py`. Even if the env var is set to `true`, the validator silently overrides it.
+- Tests in `tests/test_logging.py::TestProductionSafety` verify this invariant.
+- Exception messages in 500 responses are sanitized in production (see
+  `errors/handlers.py::_handle_unhandled_exception`).
+
+### Sensitive data redaction
+
+The `SensitiveDataFilter` automatically scrubs fields matching common sensitive key
+names (`password`, `token`, `api_key`, `secret`, `authorization`, etc.) from structured
+log data. URL query parameters with sensitive names are also redacted by `scrub_url()`.
+
+### Container log directory
+
+Both `Dockerfile` and `Dockerfile.dev` create `/app/logs` owned by the `python` user.
+The container filesystem is read-only, so `/app/logs` is mounted as an anonymous volume
+(Docker Compose) or named volume (Podman) to allow writes. In development, `LOG_OUTPUT`
+defaults to `stdout`.
