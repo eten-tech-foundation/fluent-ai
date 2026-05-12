@@ -3,6 +3,8 @@ main.py — FastAPI application factory for the Fluent AI service.
 """
 
 from contextlib import asynccontextmanager
+import asyncio
+from app.worker.suggestion_processor import worker_loop
 
 from fastapi import FastAPI
 
@@ -14,7 +16,7 @@ from app.logging import configure_logging
 from app.logging.middleware import LoggingMiddleware
 from app.logging.utils import get_logger
 from app.middleware.request_id import RequestIDMiddleware
-from app.routers import projects
+from app.routers import projects, translations
 from app.internal import admin
 
 
@@ -39,7 +41,19 @@ async def lifespan(app: FastAPI):
         log_output=settings.log_output,
         log_file=settings.log_file_path,
     )
+    
+    # Start the background worker
+    worker_task = asyncio.create_task(worker_loop())
+    
     yield
+    
+    # Cancel the worker on shutdown
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass
+        
     logger.info("Application shutting down")
 
 
@@ -84,6 +98,7 @@ register_exception_handlers(app)
 # Routers
 # --------------------------------------------------------------------------- #
 app.include_router(projects.router, tags=["projects"])
+app.include_router(translations.router, tags=["translations"])
 app.include_router(admin.router)
 app.include_router(api_v1_router)
 

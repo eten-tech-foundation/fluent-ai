@@ -87,3 +87,63 @@ class ApiKey(Base):
         DateTime(timezone=True), nullable=False, default=datetime.utcnow
     )
     expires_at: Column = Column(DateTime(timezone=True), nullable=True)
+
+class AiSuggestionJob(Base):
+    __tablename__ = "ai_suggestion_jobs"
+    __table_args__ = {"schema": "public"}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_unit_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    bible_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    book_code: Mapped[str] = mapped_column(String(50), nullable=False)
+    chapter_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    verse_start: Mapped[int] = mapped_column(Integer, nullable=False)
+    verse_end: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'queued'"))
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, server_default=text("now()"))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, server_default=text("now()"))
+
+class AiSuggestion(Base):
+    __tablename__ = "ai_suggestions"
+    __table_args__ = {"schema": "public"}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    bible_text_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    project_unit_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    suggested_text: Mapped[str] = mapped_column(String, nullable=False)
+    model_info: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, server_default=text("now()"))
+
+class BibleText(Base):
+    __tablename__ = "bible_texts"
+    __table_args__ = {"schema": "public"}
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    bible_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    book_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    chapter_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    verse_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str] = mapped_column(String, nullable=False)
+
+class TranslatedVerse(Base):
+    __tablename__ = "translated_verses"
+    __table_args__ = {"schema": "public"}
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_unit_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    bible_text_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(String, nullable=False)
+
+class Book(Base):
+    __tablename__ = "books"
+    __table_args__ = {"schema": "public"}
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+
+class ProjectUnit(Base):
+    __tablename__ = "project_units"
+    __table_args__ = {"schema": "public"}
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(Integer, nullable=False)
