@@ -148,6 +148,7 @@ start_ai_container() {
     -v "$SCRIPT_DIR/tests:/app/tests:ro" \
     -v "$SCRIPT_DIR/pyproject.toml:/app/pyproject.toml:ro" \
     -v "$SCRIPT_DIR/uv.lock:/app/uv.lock:ro" \
+    -v "$SCRIPT_DIR/alembic.ini:/app/alembic.ini:ro" \
     -v "$SCRIPT_DIR/docker-entrypoint.sh:/app/docker-entrypoint.sh:ro" \
     --tmpfs /tmp:nosuid,size=64m \
     --tmpfs /app/.cache:noexec,nosuid,size=128m \
@@ -482,13 +483,34 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   # ── Database commands ──────────────────────────────────────────────────────
 
   db:migrate)
-    echo_running "Running fluent-ai migrations..."
-    echo "  (no migrations configured yet)"
+    echo_running "Applying ai-schema migrations..."
+    exec_ai uv run alembic upgrade head
+    ;;
+
+  db:revision)
+    msg="${1:-}"
+    if [[ -z "$msg" ]]; then
+      echo_error "Usage: ./fai.sh db:revision \"<message>\""
+      exit 1
+    fi
+    shift
+    echo_running "Generating Alembic revision: $msg"
+    exec_ai uv run alembic revision --autogenerate -m "$msg" "$@"
+    ;;
+
+  db:downgrade)
+    target="${1:--1}"
+    echo_running "Downgrading to $target..."
+    exec_ai uv run alembic downgrade "$target"
+    ;;
+
+  db:history)
+    exec_ai uv run alembic history --verbose
     ;;
 
   db:seed)
-    echo_running "Running fluent-ai seeds..."
-    echo "  (no seeds configured yet)"
+    echo_running "Running ai-schema seeds..."
+    exec_ai env PYTHONPATH=/app/src uv run python -m app.db.seeds
     ;;
 
   db:psql)
@@ -583,9 +605,12 @@ Development (runs in AI container):
   run <command>          Run a uv command inside the AI container
 
 Database:
-  db:migrate             Run AI schema migrations (TODO)
-  db:seed                Run AI seeds (TODO)
-  db:psql                Open psql session
+  db:migrate                 Apply ai-schema Alembic migrations (upgrade head)
+  db:revision "<msg>"        Generate a new --autogenerate revision
+  db:downgrade [target]      Downgrade to target (default: -1)
+  db:history                 Show Alembic revision history
+  db:seed                    Run ai-schema seeds (idempotent)
+  db:psql                    Open psql session
 
 Lifecycle:
   clean [service]        Remove containers and volumes (default: all)

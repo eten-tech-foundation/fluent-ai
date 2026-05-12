@@ -1,0 +1,15 @@
+Alembic migrations for the `ai` schema (owned by fluent-ai).
+
+Generate a revision:
+    uv run alembic revision --autogenerate -m "describe change"
+
+Apply migrations:
+    uv run alembic upgrade head
+
+Downgrade one revision:
+    uv run alembic downgrade -1
+
+Configuration:
+    alembic.ini at the repo root points here.
+    env.py loads the DB URL from app.config (Settings.alembic_database_url).
+    Target metadata is OwnedBase only — never touches public/pgboss/drizzle.
