@@ -305,11 +305,14 @@ function Compose-Down([string]$svc = "") {
     }
 }
 
+# `docker compose restart` does NOT re-read env_file or recreate the container,
+# so changes to .env are silently ignored. We force-recreate instead to match
+# the podman path's behaviour (which always rm+starts).
 function Compose-Restart([string]$svc = "") {
     if ($svc -eq "" -or $svc -eq "all") {
-        Invoke-Compose @("restart")
+        Invoke-Compose @("up", "-d", "--force-recreate")
     } else {
-        Invoke-Compose @("restart", $svc)
+        Invoke-Compose @("up", "-d", "--force-recreate", "--no-deps", $svc)
     }
 }
 

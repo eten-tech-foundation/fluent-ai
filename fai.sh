@@ -318,11 +318,14 @@ compose_down() {
 }
 
 compose_restart() {
+  # `docker compose restart` does NOT re-read env_file or recreate the
+  # container, so changes to .env are silently ignored. We force-recreate
+  # instead to match the podman path's behaviour (which always rm+starts).
   local service="${1:-}"
   if [ -z "$service" ] || [ "$service" = "all" ]; then
-    $COMPOSE_CMD restart
+    $COMPOSE_CMD up -d --force-recreate
   else
-    $COMPOSE_CMD restart "$service"
+    $COMPOSE_CMD up -d --force-recreate --no-deps "$service"
   fi
 }
 
