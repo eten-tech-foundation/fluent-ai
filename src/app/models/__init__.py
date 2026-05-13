@@ -1,15 +1,12 @@
-# models/ — ORM models owned by this service.
-#
-# All models here:
-#   - Inherit from OwnedBase (defined in db/base.py)
-#   - Map to tables in the ai schema
-#   - Are managed by Alembic migrations
-#   - May be read and written by this service
-#
-# One file per domain object.
-#
-# Current state: the ApiKey model lives in app/internal/models.py alongside
-# read-only external models. Migrate it here when splitting internal/models.py.
-#
-# Rule: if a model belongs to a table this service does NOT own, it must NOT
-# live here — put it in app/internal/ instead.
+"""models/ — SQLAlchemy ORM models owned by this service.
+
+All models here inherit from OwnedBase (app.db.base), map to tables in the
+`ai` schema, and are managed by Alembic migrations.
+
+Models for tables this service does NOT own live under app/internal/ and
+inherit from ExternalBase instead.
+"""
+
+from app.models.api_key import ApiKey
+
+__all__ = ["ApiKey"]

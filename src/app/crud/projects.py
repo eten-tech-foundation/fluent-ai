@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import DatabaseException
 from app.errors.utils import with_db_retry
-from app.internal.models import Project
+from app.internal.project import Project
 
 
 @with_db_retry()

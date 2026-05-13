@@ -172,6 +172,7 @@ function Start-AiContainer {
         "-v", "${ScriptDir}\tests:/app/tests:ro",
         "-v", "${ScriptDir}\pyproject.toml:/app/pyproject.toml:ro",
         "-v", "${ScriptDir}\uv.lock:/app/uv.lock:ro",
+        "-v", "${ScriptDir}\alembic.ini:/app/alembic.ini:ro",
         "-v", "${ScriptDir}\docker-entrypoint.sh:/app/docker-entrypoint.sh:ro",
         "--tmpfs", "/tmp:nosuid,size=64m",
         "--tmpfs", "/app/.cache:noexec,nosuid,size=128m",
@@ -304,11 +305,14 @@ function Compose-Down([string]$svc = "") {
     }
 }
 
+# `docker compose restart` does NOT re-read env_file or recreate the container,
+# so changes to .env are silently ignored. We force-recreate instead to match
+# the podman path's behaviour (which always rm+starts).
 function Compose-Restart([string]$svc = "") {
     if ($svc -eq "" -or $svc -eq "all") {
-        Invoke-Compose @("restart")
+        Invoke-Compose @("up", "-d", "--force-recreate")
     } else {
-        Invoke-Compose @("restart", $svc)
+        Invoke-Compose @("up", "-d", "--force-recreate", "--no-deps", $svc)
     }
 }
 
@@ -452,12 +456,28 @@ switch ($Command) {
     # ── Database commands ────────────────────────────────────────────────────
 
     "db:migrate" {
-        Write-Running "Running fluent-ai migrations..."
-        Write-Host "  (no migrations configured yet)"
+        Write-Running "Applying ai-schema migrations..."
+        Exec-Ai @("uv", "run", "alembic", "upgrade", "head")
+    }
+    "db:revision" {
+        if (-not $svcArg) {
+            Write-Error-Msg 'Usage: ./fai.ps1 db:revision "<message>"'
+            exit 1
+        }
+        Write-Running "Generating Alembic revision: $svcArg"
+        Exec-Ai (@("uv", "run", "alembic", "revision", "--autogenerate", "-m", $svcArg) + $Args)
+    }
+    "db:downgrade" {
+        $target = if ($svcArg) { $svcArg } else { "-1" }
+        Write-Running "Downgrading to $target..."
+        Exec-Ai @("uv", "run", "alembic", "downgrade", $target)
+    }
+    "db:history" {
+        Exec-Ai @("uv", "run", "alembic", "history", "--verbose")
     }
     "db:seed" {
-        Write-Running "Running fluent-ai seeds..."
-        Write-Host "  (no seeds configured yet)"
+        Write-Running "Running ai-schema seeds..."
+        Exec-Ai @("env", "PYTHONPATH=/app/src", "uv", "run", "python", "-m", "app.db.seeds")
     }
     "db:psql" {
         if ($RuntimeMode -eq "podman-pod") {
@@ -549,9 +569,12 @@ Development (runs in AI container):
   run <command>          Run a uv command inside the AI container
 
 Database:
-  db:migrate             Run AI schema migrations (TODO)
-  db:seed                Run AI seeds (TODO)
-  db:psql                Open psql session
+  db:migrate                 Apply ai-schema Alembic migrations (upgrade head)
+  db:revision "<msg>"        Generate a new --autogenerate revision
+  db:downgrade [target]      Downgrade to target (default: -1)
+  db:history                 Show Alembic revision history
+  db:seed                    Run ai-schema seeds (idempotent)
+  db:psql                    Open psql session
 
 Lifecycle:
   clean [service]        Remove containers and volumes (default: all)

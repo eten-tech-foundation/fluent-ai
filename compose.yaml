@@ -5,7 +5,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: fluent
-      ADMIN_API_KEY_HASH: ${ADMIN_API_KEY_HASH} 
     ports:
       - "${DB_PORT:-5433}:5432"
     volumes:
@@ -28,6 +27,7 @@ services:
       - ./tests:/app/tests:ro
       - ./pyproject.toml:/app/pyproject.toml:ro
       - ./uv.lock:/app/uv.lock:ro
+      - ./alembic.ini:/app/alembic.ini:ro
       - ./docker-entrypoint.sh:/app/docker-entrypoint.sh:ro
       - /app/logs  # anonymous volume — inherits python:python from Dockerfile layer
     env_file: .env
