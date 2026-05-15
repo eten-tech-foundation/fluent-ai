@@ -162,12 +162,18 @@ The response of every tool endpoint follows the same outer envelope, so the cont
 class ToolJobResponse[ResultT](BaseModel):
     job_id: str                              # always present
     tool: str                                # e.g. "greek_room.repeated_words"
-    status: Literal["queued", "running", "completed", "failed"]
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
     result: ResultT | None = None            # populated when status == "completed"
     error: ToolError | None = None           # populated when status == "failed"
     created_at: datetime
     completed_at: datetime | None = None
 ```
+
+The `"cancelled"` status is reserved from day one because §4.7 includes
+`DELETE /jobs/{id}` in the polling contract. Adding it later would be
+a breaking change for callers that exhaustively switch on `status`,
+so it is included in the enum even under Option A (which never
+produces it in practice).
 
 In the Lightweight-now execution model (§5, Option A), every response is returned synchronously with `status == "completed"` and `result` non-null. In the Queue-from-day-one model (§5, Option B), the POST returns `status == "queued"` or `"running"` and the caller polls for completion. **Callers should always inspect `status` before reading `result`** — that single discipline keeps them forward-compatible across both models.
 
@@ -191,11 +197,19 @@ class RepeatedWordsSummary(BaseModel):
 
 class RepeatedWordsResult(BaseModel):
     lang_code: str
-    tool: str = "GreekRoom"
-    check: str = "RepeatedWords"
+    provider: str = "GreekRoom"    # the upstream library name; distinct from the
+                                   # envelope's `tool` field, which carries the
+                                   # Fluent-AI tool identifier ("greek_room.repeated_words")
+    check: str = "RepeatedWords"   # the upstream check name within the provider
     findings: list[RepeatedWordsFinding]
     summary: RepeatedWordsSummary
 ```
+
+The `provider` and `check` fields preserve greek-room's own naming so a
+caller debugging an issue can correlate against upstream documentation
+without ambiguity. They are deliberately **not** named `tool` to avoid
+a clash with the envelope's `tool` field (which carries the Fluent-AI
+tool identifier, not the upstream provider name).
 
 This shape is designed so that **pagination can be added later** as a non-breaking enhancement: a future `?page=N&page_size=M` query param would supplement `findings` with an optional `pagination` metadata object without renaming the field or changing existing behaviour for callers that don't pass paging parameters.
 
@@ -220,7 +234,9 @@ A job is owned by the `(owner_user_id, owner_org_id)` pair derived from the API 
 - Cross-bucket access (a user-owned key trying to see an org-owned key's job) is denied in this iteration; richer user-belongs-to-org relationships are out of scope.
 - An API key with the `admin` permission can see any job, for support and debugging workflows.
 
-This policy is recorded with each job in the `tool_jobs` row, so subsequent polls remain authorized even if the originating key is later revoked. The structured logger captures `api_key_id` on each job-write, giving Fluent-AI a built-in audit trail of "who ran what when" without a separate audit table.
+This policy is recorded with each job in the `tool_jobs` row, which carries **both** `api_key_id` (the originating key, as a foreign key into `ai.api_keys`) **and** the resolved `owner_user_id` / `owner_org_id` pair at submission time. Storing the resolved owner means subsequent polls remain authorized even if the originating key is later revoked — the row's own ownership stays valid. The same XOR check constraint that the `ApiKey` table enforces (`num_nonnulls(owner_user_id, owner_org_id) = 1`) is mirrored on `tool_jobs` so that invalid ownership states cannot be written.
+
+The structured logger captures `api_key_id` on each job-write, giving Fluent-AI a built-in audit trail of "who ran what when" without a separate audit table.
 
 ---
 
@@ -290,6 +306,32 @@ The worker mechanism is a separate, evolvable concern, layered as follows (each 
 - The worker mechanism itself (W1 or W2).
 - A configurable TTL for completed/failed job rows (default proposal: 7 days), and a cleanup mechanism — either a periodic `asyncio` task in W1/W2, or simply a documented manual `DELETE FROM ai.tool_jobs WHERE ...` for now.
 - Tests covering: submission, polling for queued/running/completed/failed states, cross-tenant isolation, admin-override visibility, and concurrent submission of multiple jobs.
+
+**Proposed starting schema for `ai.tool_jobs`** (subject to designer approval, per §12 question 4):
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `UUID PRIMARY KEY DEFAULT uuid_generate_v4()` | Surfaced to callers as `job_id` |
+| `tool_name` | `TEXT NOT NULL` | Matches a key in the tool registry (e.g. `"greek_room.repeated_words"`) |
+| `status` | `TEXT NOT NULL` | One of `queued`, `running`, `completed`, `failed`, `cancelled` |
+| `api_key_id` | `UUID NOT NULL REFERENCES ai.api_keys(id)` | Originating key; remains FK-valid even if the key is later revoked |
+| `owner_user_id` | `INTEGER NULL` | Resolved from the originating key at submission time |
+| `owner_org_id` | `INTEGER NULL` | Resolved from the originating key at submission time |
+| `request_payload` | `JSONB NOT NULL` | The validated Pydantic request body |
+| `result_payload` | `JSONB NULL` | Populated on `status = completed` |
+| `error` | `JSONB NULL` | Populated on `status = failed`; shape matches `ToolError` from §4.5 |
+| `progress` | `JSONB NULL` | Optional; deferred to a later migration if not needed in v1 |
+| `request_id` | `TEXT NULL` | The submission call's `X-Request-ID` for cross-referencing logs |
+| `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Submission timestamp |
+| `started_at` | `TIMESTAMPTZ NULL` | When the worker picked it up |
+| `completed_at` | `TIMESTAMPTZ NULL` | Terminal-state timestamp (for `completed`, `failed`, or `cancelled`) |
+
+With table-level constraints:
+
+- `CHECK (num_nonnulls(owner_user_id, owner_org_id) = 1)` — mirrors `ai.api_keys`
+- `CHECK (status IN ('queued','running','completed','failed','cancelled'))` — enum check
+- Index on `(owner_user_id, status)` and `(owner_org_id, status)` — supports the polling list endpoint efficiently
+- Index on `(api_key_id, created_at DESC)` — supports the audit-trail query pattern
 
 **Pros:**
 
@@ -562,7 +604,7 @@ Greek-Room itself pulls in:
 - `uroman` — universal romanization library.
 - `wheel` — packaging support.
 
-The check function this integration uses (`greekroom.owl.repeated_words.check_mcp`) does not appear to exercise `uroman`'s heavier code paths, but `uroman` is still pulled into the dependency closure. If any of these are problematic to install on the target Python version, the implementer should surface that as a blocker before committing to the dependency choice.
+A read of the imports in `greekroom/owl/repeated_words.py` suggests the check function this integration uses does not exercise `uroman`'s heavier code paths; `uroman` is still pulled into the dependency closure regardless. The implementer should verify this at install time (and confirm install times and image-size impact), and surface any of these dependencies as a blocker if they prove problematic on the target Python version.
 
 ### 9.3 Python version compatibility
 
@@ -639,6 +681,8 @@ async def check_repeated_words(
 
 The `startup()` and `shutdown()` hooks are kept as optional protocol members (default no-op) precisely so tools like `RepeatedWordsService` that have heavy init can use them, while trivial tools can ignore them.
 
+**A note on registry storage.** The registry is a **module-level singleton** inside `app/services/tool_registry.py` rather than living on `app.state`. This is a deliberate choice: it lets the `register()` decorator/call work at module import time (when `app.state` does not yet exist), and it lets every test and tool module reach the registry via a plain import. The trade-off is that the registry is global to the Python process — fine for a single FastAPI app, and the tests `app.dependency_overrides[get_tool(...)]` to swap a mock without touching the registry itself. If a future scenario requires multiple isolated registries (multi-tenant in-process? plugin sandboxing?), that would motivate moving it to `app.state`; the design does not anticipate that need today.
+
 ### 10.2 Event-loop hygiene
 
 Greek-Room's `check_mcp` function is **synchronous and CPU-bound** (regex work over each verse). Calling it directly inside an `async def` handler would block the FastAPI event loop for the duration of the work, freezing all concurrent requests on the same worker.
@@ -663,9 +707,9 @@ The same `asyncio.to_thread` discipline applies whether execution happens inline
 
 ### 10.3 Logging and request correlation
 
-The existing `RequestIDMiddleware` and structured logger work transparently through `asyncio.to_thread` because they are based on `contextvars`, which are propagated across thread boundaries by `asyncio.to_thread` (and through tasks in general). No special handling is required for request-ID correlation to appear correctly in logs emitted from the threaded greek-room call.
+For Option A and Option B with in-process workers (W1, W2), the existing `RequestIDMiddleware` and structured logger work transparently through `asyncio.to_thread` because they are based on `contextvars`. `asyncio.to_thread` automatically captures the current context via `contextvars.copy_context().run(...)`, so log records emitted from inside the threaded greek-room call carry the same `request_id` as the originating HTTP request.
 
-Under Option B, jobs are decoupled from the originating request, so the polling response cannot inherit the original request ID directly. Each job's logs use the `job_id` as the correlation key instead, and the row records the `request_id` of the *submission* call separately for cross-referencing. This is a small but worth-knowing implementation detail.
+For Option B with an external worker process (W3, W4), contextvars **do not** cross the process boundary — the worker process has no notion of the originating HTTP `request_id`. In that case, the worker uses the job's `id` (UUID) as the primary correlation key for its log records, and the `tool_jobs` row records the submission call's `request_id` in its `request_id` column so an operator can join the two log streams when debugging end-to-end.
 
 ---
 
@@ -676,7 +720,7 @@ These items are recognized, intentional non-goals for this iteration. They are l
 - **Request-size limits and abuse quotas.** Deferred per §3.6. To be added in response to observed problems.
 - **Pagination on findings.** The result schema is designed to support it (§4.6), but no paging is implemented in this iteration.
 - **Rate limiting.** No per-key or per-tenant rate limits are introduced. Same rationale as size limits.
-- **Tool versioning at the URL level.** A future tool revision that breaks compatibility would introduce a new tool name (e.g. `greek_room.repeated_words.v2`) rather than mutating the existing one; this is consistent with the tool-registry being keyed by name.
+- **Tool versioning at the URL level.** A future tool revision that breaks compatibility would introduce a new tool name (e.g. `greek_room.repeated_words_v2`) which, via the per-tool routing in §4.1, naturally produces a new URL (`/tools/greek-room/repeated-words-v2`). Tool-name versioning and URL-path versioning are therefore the same thing in this design, not two separate decisions.
 - **MCP-style (Anthropic Model Context Protocol) facade.** A facade that surfaces the tool registry through an MCP server endpoint is feasible later — the registry exists exactly to make this kind of cross-cutting surface tractable — but the authentication story for MCP-to-Fluent-AI (how a remote MCP client authenticates as a Fluent-AI tenant) is non-trivial and is left for a dedicated future design.
 - **Aggregated dispatch endpoint.** A single `POST /tools/dispatch` that takes a `tool` field is rejected per §4.2; an aggregated *batch* endpoint (run multiple tools on the same corpus) is plausible but not designed here.
 - **Server-Sent Events / WebSocket streaming for job progress.** Long-running tools could benefit from streamed progress; this is a deliberate non-goal for v1. Polling with `?wait=` is the only async-progress mechanism in the v1 contract.
@@ -785,6 +829,7 @@ from app.schemas.greek_room import (
     RepeatedWordsRequest,
     RepeatedWordsResult,
     RepeatedWordsFinding,
+    RepeatedWordsSummary,
 )
 from app.services import tool_registry
 
@@ -878,8 +923,6 @@ class RepeatedWordsService:
             )
             for item in feedback_raw
         ]
-        from app.schemas.greek_room import RepeatedWordsSummary
-
         return RepeatedWordsResult(
             lang_code=req.lang_code,
             findings=findings,
@@ -922,7 +965,7 @@ router = APIRouter(prefix="/tools/greek-room", tags=["tools:greek-room"])
 @router.post(
     "/repeated-words",
     response_model=ToolJobResponse[RepeatedWordsResult],
-    status_code=status.HTTP_200_OK,
+    status_code=status.HTTP_200_OK,                       # Option A: synchronous, result inline
     summary="Run the greek-room repeated-words check",
 )
 async def check_repeated_words(
@@ -943,6 +986,8 @@ async def check_repeated_words(
 ```
 
 The endpoint is intentionally small and survives the Option A → Option B cutover by being rewritten to enqueue a `tool_jobs` row instead of calling `execute` inline; the URL, request schema, and response-envelope shape are unchanged in either direction.
+
+**Status-code distinction between options.** Under Option A the handler returns **HTTP 200 OK**, because the resource (the completed job result) is being produced inline and is fully present in the response body. Under Option B the equivalent submission handler returns **HTTP 202 Accepted**, because the request has been accepted for asynchronous processing but the result is not yet available — the caller obtains it from the polling endpoint. This is the standard REST convention for distinguishing inline-completed and asynchronously-queued operations; callers that switch on status code should expect either, depending on which execution model is in force.
 
 Under Option B, the equivalent handler becomes roughly:
 
@@ -1001,8 +1046,9 @@ class RepeatedWordsSummary(BaseModel):
 
 class RepeatedWordsResult(BaseModel):
     lang_code: str
-    tool: str = "GreekRoom"
-    check: str = "RepeatedWords"
+    provider: str = "GreekRoom"    # upstream library name (see §4.6); distinct
+                                   # from the envelope's `tool` field
+    check: str = "RepeatedWords"   # upstream check name within the provider
     findings: list[RepeatedWordsFinding]
     summary: RepeatedWordsSummary
 ```
@@ -1014,6 +1060,11 @@ from typing import Generic, Literal, TypeVar
 from pydantic import BaseModel
 
 
+# Note: this file uses the older TypeVar/Generic[T] syntax rather than the
+# PEP 695 generic-class syntax (`class ToolJobResponse[ResultT](...)`) used
+# elsewhere in this document, because Pydantic v2's generic-model machinery
+# integrates more cleanly with the TypeVar form. The Tool protocol in §6.1
+# can use PEP 695 syntax safely because it is not a Pydantic model.
 ResultT = TypeVar("ResultT", bound=BaseModel)
 
 
@@ -1026,7 +1077,7 @@ class ToolError(BaseModel):
 class ToolJobResponse(BaseModel, Generic[ResultT]):
     job_id: str
     tool: str
-    status: Literal["queued", "running", "completed", "failed"]
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
     result: ResultT | None = None
     error: ToolError | None = None
     created_at: datetime
