@@ -332,9 +332,11 @@ The same `Tool` protocol applies under both Option A and Option B. Under Option 
 ### 6.1 The protocol
 
 ```python
-from typing import ClassVar, Protocol
+from typing import ClassVar, Protocol, runtime_checkable
 from pydantic import BaseModel
 
+
+@runtime_checkable
 class Tool[RequestT: BaseModel, ResultT: BaseModel](Protocol):
     name: ClassVar[str]                       # e.g. "greek_room.repeated_words"
     request_schema: ClassVar[type[BaseModel]]  # the Pydantic request model
@@ -344,6 +346,8 @@ class Tool[RequestT: BaseModel, ResultT: BaseModel](Protocol):
 ```
 
 The protocol is intentionally minimal. Any tool — fast or slow, in-process or HTTP-backed, pure-Python or LLM-driven — implements these four members. The interface is a deliberate floor, not a ceiling; richer concerns (streaming, progress reporting, cancellation) are layered on later via optional methods or sub-protocols when a tool that actually needs them appears. Predicting those concerns now would risk a protocol that is wrong for the second tool, which is a worse failure mode than the small refactor required to widen the protocol later.
+
+**Optional lifecycle hooks.** Tools that need heavy initialization (loading data files, opening client connections) or graceful cleanup may *additionally* implement `async def startup()` and `async def shutdown()`. These are not part of the required protocol — a tool whose `__init__` is sufficient simply omits them — but the lifespan code in §10 calls them via a `hasattr` check when present, so registered tools that do declare them get their hooks invoked at the right moments. This keeps the required surface small while allowing tools with real lifecycle needs to opt in without ceremony.
 
 ### 6.2 The registry
 
@@ -413,7 +417,8 @@ src/app/
 │   └── endpoints/
 │       └── greek_room.py                       # NEW: route handlers
 ├── schemas/
-│   └── greek_room.py                           # NEW: Pydantic request/response models
+│   ├── greek_room.py                           # NEW: Pydantic request/response models
+│   └── tool_job.py                             # NEW: generic ToolJobResponse[ResultT] envelope
 ├── services/
 │   ├── tool_registry.py                        # NEW: protocol + registry + auto-discovery
 │   └── greek_room/
@@ -424,6 +429,8 @@ src/app/
 │   └── exceptions.py                           # MODIFIED: add ToolExecutionException
 └── main.py                                     # MODIFIED: lifespan loads registry + service
 ```
+
+The generic `tool_job.py` schema module is shared by every tool family — its `ToolJobResponse[ResultT]` envelope is the single contract that wraps each tool's typed result. Tool-specific schemas (request and result bodies) live alongside the tool family in `schemas/greek_room.py`, `schemas/gemini.py`, etc.
 
 The `services/greek_room/` package is structured to **scale horizontally**: when a second greek-room tool (e.g. script analysis) is added, it gets its own sibling module (`services/greek_room/script_analysis.py`) and registers itself. No existing file changes. When a non-greek-room tool family arrives (e.g. Gemini-backed translation), it gets its own sibling package (`services/gemini/`) at the same level.
 
@@ -599,14 +606,19 @@ async def lifespan(app: FastAPI):
     # Auto-discover and import tool modules so self-registration runs.
     tool_registry.discover("app.services.greek_room")  # and future families
 
-    # Each registered tool can do its heavy init here if needed.
-    for tool in tool_registry.all_tools():
-        await tool.startup()        # optional protocol member; no-op by default
+    # Each registered tool may optionally declare startup/shutdown hooks.
+    for tool in tool_registry.all_tools().values():
+        if hasattr(tool, "startup"):
+            await tool.startup()
 
-    logger.info("Tool registry loaded", tools=[t.name for t in tool_registry.all_tools()])
+    logger.info(
+        "Tool registry loaded",
+        tools=list(tool_registry.all_tools().keys()),
+    )
     yield
-    for tool in tool_registry.all_tools():
-        await tool.shutdown()       # optional protocol member; no-op by default
+    for tool in tool_registry.all_tools().values():
+        if hasattr(tool, "shutdown"):
+            await tool.shutdown()
 ```
 
 ```python
@@ -681,10 +693,14 @@ These are the decisions this pitch deliberately leaves open. Each has a defensib
 
 1. **Job execution model: Option A (Lightweight-now) or Option B (Queue-from-day-one)?** (§5)
 2. **If Option B: worker tier W1 (per-job task) or W2 (long-lived poller task)?** Both are appropriate for greek-room; W2 is slightly more aligned with the future W3 process-level worker. (§5.3)
-3. **Are the recommendations on URL layout, scoping policy, and Tool-protocol shape approved as written, or are there modifications the designer wants before implementation?** (§4.1, §4.8, §6.1)
-4. **Is `>=0.0.20` of the `greekroom` PyPI package an acceptable dependency floor, given its alpha designation?** Alternatives are a git pin to a specific commit, or a slightly looser/tighter version constraint. (§9.1)
-5. **Is the proposed `ToolExecutionException` (502, code `TOOL_EXECUTION_ERROR`) the correct shape, or does the designer prefer reusing the existing `ExternalServiceException`?** (§8.1)
-6. **Are there any callers of the eventual endpoint that need to be looped in on the contract before it solidifies?** The status-envelope shape is the part with the highest cost of later change.
+3. **Job ownership policy as described in §4.8 (per-tenant scoping by `owner_user_id` XOR `owner_org_id` + admin-permission override + 404 on cross-tenant access) — approved as written?** This was drafted from a reasonable default reading of the existing `ApiKey` model and was not separately ratified during the design conversation. (§4.8)
+4. **The `tool_jobs` table shape sketched in §5.3 ("Option B — What this requires building") — approved as the starting schema, or are there columns to add/remove before the Alembic migration is written?** Particularly: do we want to record the originating `request_id` alongside `api_key_id`, and is `progress` (JSONB) wanted in v1 or deferred to a later migration? (§5.3)
+5. **TTL for completed/failed job rows — accept the proposed 7-day default, or pick a different value?** This was not explicitly discussed during the design conversation; 7 days is offered as a defensible starting point. (§5.3)
+6. **Tool protocol's optional `startup()` / `shutdown()` hooks (§6.1) — accept as optional members invoked by `hasattr` check, or require them on every tool as no-op defaults?** Optional is the more YAGNI-aligned choice; required would give static type-checkers a clean target. (§6.1, §10.1)
+7. **Are the recommendations on URL layout and Tool-protocol shape approved as written, or are there modifications the designer wants before implementation?** (§4.1, §6.1)
+8. **Is `>=0.0.20` of the `greekroom` PyPI package an acceptable dependency floor, given its alpha designation?** Alternatives are a git pin to a specific commit, or a slightly looser/tighter version constraint. (§9.1)
+9. **Is the proposed `ToolExecutionException` (502, code `TOOL_EXECUTION_ERROR`) the correct shape, or does the designer prefer reusing the existing `ExternalServiceException`?** (§8.1)
+10. **Are there any callers of the eventual endpoint that need to be looped in on the contract before it solidifies?** The status-envelope shape is the part with the highest cost of later change.
 
 ---
 
@@ -822,20 +838,45 @@ class RepeatedWordsService:
 
     @staticmethod
     def _flatten(mcp_d: dict, req: RepeatedWordsRequest) -> RepeatedWordsResult:
-        # greek-room nests the actual findings under .result.issues; the
-        # exact key names below should be confirmed against the live response
-        # at implementation time and adjusted as needed.
-        issues_raw = (mcp_d or {}).get("result", {}).get("issues", [])
+        # Greek-room's `check_mcp` returns an envelope of the shape:
+        #     {
+        #       "jsonrpc": "2.0",
+        #       "id": "...",
+        #       "result-timestamp": "...",
+        #       "lang-code": "...",
+        #       "result": [{
+        #         "tool": "GreekRoom",
+        #         "checks": [{
+        #           "check": "RepeatedWords",
+        #           "feedback": [
+        #             {"snt-id": "GEN 1:1",
+        #              "repeated-word": "in in",
+        #              "surf": "In in",
+        #              "start-position": 0,
+        #              "legitimate": false,
+        #              "severity": 0.5},
+        #             ...
+        #           ]
+        #         }]
+        #       }]
+        #     }
+        # The flattening drills exactly that path and pulls the feedback list out.
+        feedback_raw: list[dict] = []
+        for result_block in (mcp_d or {}).get("result", []) or []:
+            for check_block in result_block.get("checks", []) or []:
+                if check_block.get("check") == "RepeatedWords":
+                    feedback_raw.extend(check_block.get("feedback", []) or [])
+
         findings = [
             RepeatedWordsFinding(
                 snt_id=item["snt-id"],
                 repeated_word=item.get("repeated-word", ""),
                 surf=item.get("surf", ""),
-                start_position=int(item.get("start", 0)),
+                start_position=int(item.get("start-position", 0)),
                 legitimate=bool(item.get("legitimate", False)),
                 severity=float(item.get("severity", 0.5)),
             )
-            for item in issues_raw
+            for item in feedback_raw
         ]
         from app.schemas.greek_room import RepeatedWordsSummary
 
@@ -1014,12 +1055,21 @@ class ToolExecutionException(FluentAIException):
     default_code = ErrorCode.TOOL_EXECUTION_ERROR
     default_message = "Tool execution failed."
 
-    def __init__(self, *, tool: str, message: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        tool: str,
+        message: str | None = None,
+        details: dict | None = None,
+    ) -> None:
+        merged_details = {"tool": tool, **(details or {})}
         super().__init__(
             message=message or self.default_message,
-            details={"tool": tool},
+            details=merged_details,
         )
 ```
+
+The constructor accepts an optional `details` dict so a caller can attach extra context (e.g. the underlying exception type, the offending field, an internal diagnostic) while the `tool` key is always populated. The cause chain is preserved at the call site with `raise ToolExecutionException(...) from exc`.
 
 ```python
 # src/app/errors/codes.py  (addition to the existing ErrorCode collection)
