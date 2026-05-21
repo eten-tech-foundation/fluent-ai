@@ -8,8 +8,6 @@ which are an implementation detail of the service layer and never leak
 to callers.
 """
 
-from __future__ import annotations
-
 from pydantic import BaseModel, Field
 
 

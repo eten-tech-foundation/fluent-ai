@@ -17,8 +17,6 @@ PEP 695 generic-class syntax because Pydantic v2's generic-model
 machinery integrates more cleanly with the TypeVar form.
 """
 
-from __future__ import annotations
-
 from datetime import datetime
 from typing import Generic, Literal, TypeVar
 

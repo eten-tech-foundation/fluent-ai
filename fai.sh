@@ -146,6 +146,7 @@ start_ai_container() {
     "${env_flags[@]}" \
     -v "$SCRIPT_DIR/src:/app/src:ro" \
     -v "$SCRIPT_DIR/tests:/app/tests:ro" \
+    -v "$SCRIPT_DIR/scripts:/app/scripts:ro" \
     -v "$SCRIPT_DIR/pyproject.toml:/app/pyproject.toml:ro" \
     -v "$SCRIPT_DIR/uv.lock:/app/uv.lock:ro" \
     -v "$SCRIPT_DIR/alembic.ini:/app/alembic.ini:ro" \

@@ -15,15 +15,29 @@ probe, not a substitute for the authoritative pytest suite
 
 Usage::
 
-    # default — http://localhost:8200, key from .env or DEV_API_KEY env var
-    python scripts/smoke_repeated_words.py
+    # Preferred — run inside the AI container (no host Python required).
+    # The scripts/ directory is bind-mounted read-only at /app/scripts.
+    ./fai.sh run python scripts/smoke_repeated_words.py
 
-    # override URL and key explicitly
-    python scripts/smoke_repeated_words.py --url http://localhost:8200 \
-                                           --key fai_dev_admin
+    # Or drop into a container shell and invoke directly:
+    ./fai.sh shell
+    # then inside the container:
+    python scripts/smoke_repeated_words.py --url http://localhost:8200
 
-    # print the raw response body (no assertions, no pretty-printing)
-    python scripts/smoke_repeated_words.py --raw
+    # Override URL and key explicitly:
+    ./fai.sh run python scripts/smoke_repeated_words.py \
+        --url http://localhost:8200 --key fai_dev_admin
+
+    # Print the raw response body (no assertions, no pretty-printing):
+    ./fai.sh run python scripts/smoke_repeated_words.py --raw
+
+It can also be run directly on the host with no setup — the script uses
+only the Python standard library, so any Python 3.10+ interpreter works
+without installing dependencies::
+
+    python3 scripts/smoke_repeated_words.py
+    python3 scripts/smoke_repeated_words.py --url http://localhost:8200 \
+                                            --key fai_dev_admin
 
 Exit status:
 
@@ -33,8 +47,6 @@ Exit status:
 
 Requires only the Python standard library. Runs on Windows and Linux.
 """
-
-from __future__ import annotations
 
 import argparse
 import json
@@ -239,13 +251,13 @@ def main(argv: list[str]) -> int:
     api_key = resolve_api_key(args.key)
     endpoint = f"{base_url}/tools/greek-room/repeated-words"
 
-    redacted = api_key[:8] + "…(redacted)" if len(api_key) > 8 else "(redacted)"
+    redacted = api_key[:8] + "...(redacted)" if len(api_key) > 8 else "(redacted)"
     print(f"POST {endpoint}", file=sys.stderr)
     print(f"X-API-Key: {redacted}", file=sys.stderr)
     print("", file=sys.stderr)
 
     try:
-        status, raw_body, _content_type = post_json(
+        status, raw_body, _ = post_json(
             endpoint, SAMPLE_REQUEST, api_key, args.timeout
         )
     except urllib.error.URLError as exc:

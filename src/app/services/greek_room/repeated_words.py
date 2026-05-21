@@ -11,8 +11,6 @@ The class exposes the registry-ready surface (`name`, `request_schema`,
 adopt it without modification.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import uuid

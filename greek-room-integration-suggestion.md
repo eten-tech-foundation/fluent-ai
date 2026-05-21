@@ -1005,7 +1005,7 @@ async def submit_repeated_words(
     return ToolJobResponse[RepeatedWordsResult].from_job_row(job)
 ```
 
-…and the worker process (W1/W2/W3) is what eventually calls `tool_registry.get(...).execute(request)`.
+...and the worker process (W1/W2/W3) is what eventually calls `tool_registry.get(...).execute(request)`.
 
 ### 13.5 The schemas in one place
 

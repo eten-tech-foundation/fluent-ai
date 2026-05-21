@@ -10,8 +10,6 @@ Three tests covering the integration surface:
   3. Missing API key → 401 (no header, no override).
 """
 
-from __future__ import annotations
-
 import uuid
 from datetime import datetime, timezone
 
