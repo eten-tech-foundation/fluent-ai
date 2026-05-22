@@ -6,8 +6,6 @@ These do not touch a real database — they assert that:
   * Every seed statement uses ON CONFLICT DO NOTHING (idempotency).
 """
 
-from __future__ import annotations
-
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 

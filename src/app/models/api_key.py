@@ -5,8 +5,6 @@ Access: full DML — this service creates, updates, and revokes API keys.
 Base:   OwnedBase (from app.db.base).
 """
 
-from __future__ import annotations
-
 import uuid
 from datetime import datetime
 
