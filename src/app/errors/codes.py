@@ -57,6 +57,12 @@ class ErrorCode:
     EXTERNAL_SERVICE_UNAVAILABLE = "EXTERNAL_SERVICE_UNAVAILABLE"
 
     # ------------------------------------------------------------------ #
+    # Tool execution (502) — in-process tool failures, distinct from
+    # remote HTTP upstream failures (EXTERNAL_SERVICE_*).
+    # ------------------------------------------------------------------ #
+    TOOL_EXECUTION_ERROR = "TOOL_EXECUTION_ERROR"
+
+    # ------------------------------------------------------------------ #
     # Internal (500)
     # ------------------------------------------------------------------ #
     INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR"

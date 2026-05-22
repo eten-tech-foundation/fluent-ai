@@ -126,3 +126,30 @@ class ExternalServiceException(FluentAIException):
     status_code = 502
     default_code = ErrorCode.EXTERNAL_SERVICE_ERROR
     default_message = "An external service is unavailable. Please try again later."
+
+
+class ToolExecutionException(FluentAIException):
+    """A tool implementation failed during execution.
+
+    Distinct from generic 500s (unexpected platform errors) and from
+    ExternalServiceException (HTTP-upstream failures); this signals that
+    a tool's own execution did not complete successfully, for reasons
+    internal to the tool but not the platform.
+    """
+
+    status_code = 502
+    default_code = ErrorCode.TOOL_EXECUTION_ERROR
+    default_message = "Tool execution failed."
+
+    def __init__(
+        self,
+        *,
+        tool: str,
+        message: str | None = None,
+        details: dict | None = None,
+    ) -> None:
+        merged_details = {"tool": tool, **(details or {})}
+        super().__init__(
+            message=message or self.default_message,
+            details=merged_details,
+        )

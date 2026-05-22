@@ -170,6 +170,7 @@ function Start-AiContainer {
     ) + $envFlags + @(
         "-v", "${ScriptDir}\src:/app/src:ro",
         "-v", "${ScriptDir}\tests:/app/tests:ro",
+        "-v", "${ScriptDir}\scripts:/app/scripts:ro",
         "-v", "${ScriptDir}\pyproject.toml:/app/pyproject.toml:ro",
         "-v", "${ScriptDir}\uv.lock:/app/uv.lock:ro",
         "-v", "${ScriptDir}\alembic.ini:/app/alembic.ini:ro",
