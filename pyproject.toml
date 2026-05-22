@@ -13,6 +13,7 @@ dependencies = [
     "alembic>=1.13.0",
     # AI
     "google-genai>=1.73.1",
+    "greekroom>=0.0.20",
 ]
 
 [dependency-groups]
