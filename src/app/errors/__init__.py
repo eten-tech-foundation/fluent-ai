@@ -14,6 +14,7 @@ from app.errors.exceptions import (
     ExternalServiceException,
     FluentAIException,
     NotFoundException,
+    ToolExecutionException,
     ValidationException,
 )
 from app.errors.schemas import ErrorDetail, ErrorResponse
@@ -30,4 +31,5 @@ __all__ = [
     "ConflictException",
     "DatabaseException",
     "ExternalServiceException",
+    "ToolExecutionException",
 ]

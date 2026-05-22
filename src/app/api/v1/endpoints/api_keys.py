@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, require_admin, require_api_key
-from app.internal.models import ApiKey
+from app.models.api_key import ApiKey
 from app.schemas.api_key import ApiKeyCreate, ApiKeyCreated, ApiKeyInfo, ApiKeyUpdate
 from app.services.api_key import (
     create_api_key,

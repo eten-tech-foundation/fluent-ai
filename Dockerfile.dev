@@ -27,8 +27,10 @@ COPY pyproject.toml uv.lock ./
 # Install all dependencies including dev
 RUN uv sync --frozen --no-install-project
 
-# Copy entrypoint script (source code is bind-mounted for hot-reload)
-COPY --chown=python:python docker-entrypoint.sh ./
+# Copy entrypoint and Alembic config (source code is bind-mounted for hot-reload).
+# alembic.ini is also bind-mounted by compose/podman, so this COPY is a fallback
+# that lets the image work standalone if someone runs it without a bind mount.
+COPY --chown=python:python docker-entrypoint.sh alembic.ini ./
 
 # Create log directory for file-based logging (LOG_OUTPUT=file|both)
 RUN mkdir -p /app/logs

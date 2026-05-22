@@ -10,8 +10,10 @@ dependencies = [
     # Database
     "sqlalchemy[asyncio]>=2.0.0",
     "asyncpg>=0.30.0",
+    "alembic>=1.13.0",
     # AI
     "google-genai>=1.73.1",
+    "greekroom>=0.0.20",
 ]
 
 [dependency-groups]
