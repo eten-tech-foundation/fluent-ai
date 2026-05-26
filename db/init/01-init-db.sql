@@ -71,7 +71,8 @@ ALTER SCHEMA ai      OWNER TO db_admin;
 GRANT USAGE ON SCHEMA public  TO role_web_data, role_ai_reader, role_migrations;
 GRANT USAGE ON SCHEMA pgboss  TO role_pgboss_user, role_migrations;
 GRANT USAGE ON SCHEMA drizzle TO role_migrations;
-GRANT USAGE ON SCHEMA ai      TO role_ai_data, role_migrations;
+-- role_web_data needs USAGE on ai schema to INSERT jobs and SELECT suggestions
+GRANT USAGE ON SCHEMA ai      TO role_ai_data, role_web_data, role_migrations;
 
 
 -- ================================================================
