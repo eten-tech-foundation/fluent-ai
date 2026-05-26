@@ -18,7 +18,7 @@ import pytest
 
 from app.dependencies import require_admin, require_api_key
 from app.errors.codes import ErrorCode
-from app.internal.models import ApiKey
+from app.models.api_key import ApiKey
 from app.main import app
 from app.schemas.api_key import ApiKeyCreated
 

@@ -3,8 +3,6 @@ main.py — FastAPI application factory for the Fluent AI service.
 """
 
 from contextlib import asynccontextmanager
-import asyncio
-from app.worker.suggestion_processor import worker_loop
 
 from fastapi import FastAPI
 
@@ -18,6 +16,7 @@ from app.logging.utils import get_logger
 from app.middleware.request_id import RequestIDMiddleware
 from app.routers import projects, translations
 from app.internal import admin
+from app.services.greek_room.repeated_words import RepeatedWordsService
 
 
 settings = get_settings()
@@ -33,6 +32,12 @@ logger.info(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Instantiate AI tool services once at startup so heavy initialisation
+    # (data file loading, client connection setup) happens before the
+    # first request arrives, and any missing-resource errors surface in
+    # the boot logs rather than as a mysterious 500 to the first caller.
+    app.state.repeated_words_service = RepeatedWordsService()
+
     logger.info(
         "Application started",
         host=settings.host,

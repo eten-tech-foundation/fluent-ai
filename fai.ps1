@@ -170,11 +170,14 @@ function Start-AiContainer {
     ) + $envFlags + @(
         "-v", "${ScriptDir}\src:/app/src:ro",
         "-v", "${ScriptDir}\tests:/app/tests:ro",
+        "-v", "${ScriptDir}\scripts:/app/scripts:ro",
         "-v", "${ScriptDir}\pyproject.toml:/app/pyproject.toml:ro",
         "-v", "${ScriptDir}\uv.lock:/app/uv.lock:ro",
+        "-v", "${ScriptDir}\alembic.ini:/app/alembic.ini:ro",
         "-v", "${ScriptDir}\docker-entrypoint.sh:/app/docker-entrypoint.sh:ro",
         "--tmpfs", "/tmp:nosuid,size=64m",
         "--tmpfs", "/app/.cache:noexec,nosuid,size=128m",
+        "-v", "fluent-ai-logs:/app/logs",
         "--security-opt", "no-new-privileges:true",
         "--cap-drop", "ALL",
         "--user", "1001:1001",
@@ -279,6 +282,10 @@ function Podman-Build([string]$svc = "ai") {
     }
 }
 
+function Podman-DbPsql {
+    & $Runtime exec -it fluent-ai-db psql -U postgres -d fluent
+}
+
 # ── Docker Compose command functions ──────────────────────────────────────────
 
 function Compose-Up([string]$svc = "") {
@@ -299,11 +306,14 @@ function Compose-Down([string]$svc = "") {
     }
 }
 
+# `docker compose restart` does NOT re-read env_file or recreate the container,
+# so changes to .env are silently ignored. We force-recreate instead to match
+# the podman path's behaviour (which always rm+starts).
 function Compose-Restart([string]$svc = "") {
     if ($svc -eq "" -or $svc -eq "all") {
-        Invoke-Compose @("restart")
+        Invoke-Compose @("up", "-d", "--force-recreate")
     } else {
-        Invoke-Compose @("restart", $svc)
+        Invoke-Compose @("up", "-d", "--force-recreate", "--no-deps", $svc)
     }
 }
 
@@ -334,6 +344,24 @@ function Compose-Build([string]$svc = "") {
     }
 }
 
+function Compose-DbPsql {
+    Invoke-Compose @("exec", "db", "psql", "-U", "postgres", "-d", "fluent")
+}
+
+function Podman-Logs([string]$svc = "") {
+    if ($svc) {
+        # Route through pod logs --container to avoid direct name-resolution bugs
+        # in some podman builds where 'podman logs <hyphenated-name>' fails.
+        & $Runtime pod logs --container "fluent-ai-$svc" -f $PodName
+    } else {
+        & $Runtime pod logs -f $PodName
+    }
+}
+
+function Compose-Logs([string[]]$logArgs) {
+    Invoke-Compose (@("logs", "-f") + $logArgs)
+}
+
 # ── Exec-AI dispatch ──────────────────────────────────────────────────────────
 
 function Exec-Ai([string[]]$cmdArgs) {
@@ -361,40 +389,30 @@ $svcArg = if ($Service) { $Service } else { "" }
 switch ($Command) {
     "up" {
         if ($RuntimeMode -eq "podman-pod") {
-            Podman-Up ($svcArg -or "all")
+            Podman-Up (if ($svcArg) { $svcArg } else { "all" })
         } else {
             Compose-Up $svcArg
         }
     }
     "down" {
         if ($RuntimeMode -eq "podman-pod") {
-            Podman-Down ($svcArg -or "all")
+            Podman-Down (if ($svcArg) { $svcArg } else { "all" })
         } else {
             Compose-Down $svcArg
         }
     }
     "restart" {
         if ($RuntimeMode -eq "podman-pod") {
-            Podman-Restart ($svcArg -or "all")
+            Podman-Restart (if ($svcArg) { $svcArg } else { "all" })
         } else {
             Compose-Restart $svcArg
         }
     }
     "logs" {
         if ($RuntimeMode -eq "podman-pod") {
-            if ($svcArg) {
-                # Route through pod logs --container to avoid direct name-resolution
-                # bugs in some podman builds where 'podman logs <hyphenated-name>' fails.
-                & $Runtime pod logs --container "fluent-ai-$svcArg" -f $PodName
-            } else {
-                & $Runtime pod logs -f $PodName
-            }
+            Podman-Logs $svcArg
         } else {
-            if ($svcArg) {
-                Invoke-Compose @("logs", "-f", $svcArg)
-            } else {
-                Invoke-Compose @("logs", "-f")
-            }
+            Compose-Logs $Args
         }
     }
     "status" {
@@ -439,18 +457,34 @@ switch ($Command) {
     # ── Database commands ────────────────────────────────────────────────────
 
     "db:migrate" {
-        Write-Running "Running fluent-ai migrations..."
-        Write-Host "  (no migrations configured yet)"
+        Write-Running "Applying ai-schema migrations..."
+        Exec-Ai @("uv", "run", "alembic", "upgrade", "head")
+    }
+    "db:revision" {
+        if (-not $svcArg) {
+            Write-Error-Msg 'Usage: ./fai.ps1 db:revision "<message>"'
+            exit 1
+        }
+        Write-Running "Generating Alembic revision: $svcArg"
+        Exec-Ai (@("uv", "run", "alembic", "revision", "--autogenerate", "-m", $svcArg) + $Args)
+    }
+    "db:downgrade" {
+        $target = if ($svcArg) { $svcArg } else { "-1" }
+        Write-Running "Downgrading to $target..."
+        Exec-Ai @("uv", "run", "alembic", "downgrade", $target)
+    }
+    "db:history" {
+        Exec-Ai @("uv", "run", "alembic", "history", "--verbose")
     }
     "db:seed" {
-        Write-Running "Running fluent-ai seeds..."
-        Write-Host "  (no seeds configured yet)"
+        Write-Running "Running ai-schema seeds..."
+        Exec-Ai @("env", "PYTHONPATH=/app/src", "uv", "run", "python", "-m", "app.db.seeds")
     }
     "db:psql" {
         if ($RuntimeMode -eq "podman-pod") {
-            & $Runtime exec -it fluent-ai-db psql -U postgres -d fluent
+            Podman-DbPsql
         } else {
-            Invoke-Compose @("exec", "db", "psql", "-U", "postgres", "-d", "fluent")
+            Compose-DbPsql
         }
     }
 
@@ -488,7 +522,7 @@ switch ($Command) {
     }
     "build" {
         if ($RuntimeMode -eq "podman-pod") {
-            Podman-Build ($svcArg -or "ai")
+            Podman-Build (if ($svcArg) { $svcArg } else { "ai" })
         } else {
             Compose-Build $svcArg
         }
@@ -536,9 +570,12 @@ Development (runs in AI container):
   run <command>          Run a uv command inside the AI container
 
 Database:
-  db:migrate             Run AI schema migrations (TODO)
-  db:seed                Run AI seeds (TODO)
-  db:psql                Open psql session
+  db:migrate                 Apply ai-schema Alembic migrations (upgrade head)
+  db:revision "<msg>"        Generate a new --autogenerate revision
+  db:downgrade [target]      Downgrade to target (default: -1)
+  db:history                 Show Alembic revision history
+  db:seed                    Run ai-schema seeds (idempotent)
+  db:psql                    Open psql session
 
 Lifecycle:
   clean [service]        Remove containers and volumes (default: all)

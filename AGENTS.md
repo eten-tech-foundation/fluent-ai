@@ -47,9 +47,12 @@ in service-only mode alongside `fluent.sh`.
 ./fai.sh run <cmd>      # uv run <cmd>
 
 # Database
-./fai.sh db:psql        # Open psql session
-./fai.sh db:migrate     # Run migrations (TODO)
-./fai.sh db:seed        # Run seeds (TODO)
+./fai.sh db:psql                  # Open psql session
+./fai.sh db:migrate               # Apply Alembic migrations (upgrade head)
+./fai.sh db:revision "<message>"  # Generate a new --autogenerate revision
+./fai.sh db:downgrade [target]    # Downgrade to target (default: -1)
+./fai.sh db:history               # Show Alembic revision history
+./fai.sh db:seed                  # Run ai-schema seeds (idempotent)
 
 # Lifecycle
 ./fai.sh build          # Rebuild AI image without cache
@@ -297,15 +300,47 @@ Service: ai    fluent-ai (built)    host:8200 → container:8200
 ### Source bind-mount
 
 `src/` is mounted read-only into `/app/src`. FastAPI dev mode watches for changes and
-hot-reloads automatically. `pyproject.toml`, `uv.lock`, and `docker-entrypoint.sh` are
-also bind-mounted so dependency/entrypoint changes take effect without a full rebuild.
+hot-reloads automatically. `pyproject.toml`, `uv.lock`, `alembic.ini`, and
+`docker-entrypoint.sh` are also bind-mounted so dependency/entrypoint changes take
+effect without a full rebuild.
 
-### First-run initialisation
+### Container startup
 
-`docker-entrypoint.sh` checks for `/tmp/.db-initialized` on startup. On first run it
-executes any pending migrations/seeds, touches the sentinel, then starts the server.
-The sentinel lives in `/tmp` (tmpfs) so it resets on each container restart — this is
-intentional during development.
+`docker-entrypoint.sh` runs `alembic upgrade head` and `python -m app.db.seeds` on
+every container start before launching FastAPI. Both steps are idempotent — Alembic
+skips already-applied revisions and every seed uses `ON CONFLICT DO NOTHING`. Set
+`SKIP_DB_BOOTSTRAP=1` to skip both (useful for one-off shells).
+
+## Database Ownership
+
+This service shares its PostgreSQL database with `fluent-platform`. Strict ownership
+rules govern who may change what:
+
+- **`db/init/`** contains only **pre-app bootstrap** SQL that postgres executes via
+  `docker-entrypoint-initdb.d` on first volume creation: role/user creation, schema
+  creation, grants, and external (`public`) schema dumps from `fluent-platform`. It
+  must never contain DDL or seed data for the `ai` schema.
+- **`ai` schema** (owned by this service) is managed by **Alembic** under
+  `src/app/db/migrations/` and seeded by **Python** under `src/app/db/seeds/`.
+  Both run on every AI-container start via `docker-entrypoint.sh`.
+- **`public` / `pgboss` / `drizzle` schemas** are owned by `fluent-platform`. Alembic
+  is configured via `include_name` / `include_object` filters in `env.py` to refuse
+  to generate or apply any change outside `ai`. The `alembic_version` bookkeeping
+  table lives in the `ai` schema for the same reason.
+
+### Adding a new `ai`-schema table
+
+1. Add the ORM model under `src/app/models/<domain>.py` inheriting from `OwnedBase`.
+2. Re-export it from `src/app/db/base.py` (so autogenerate sees it).
+3. `./fai.sh db:revision "create ai.<table>"` — review the generated diff.
+4. `./fai.sh db:migrate` — apply locally.
+5. Add idempotent seeds under `src/app/db/seeds/<domain>.py` if needed, and register
+   them in `app.db.seeds.runner.run_all_seeds`.
+
+### Reading an external (read-only) table
+
+Add the ORM model under `src/app/internal/<domain>.py` inheriting from `ExternalBase`.
+Do **not** import it from `app/db/base.py` — Alembic must never see it.
 
 ## Structured Logging
 

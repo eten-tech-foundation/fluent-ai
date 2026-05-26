@@ -39,13 +39,27 @@ echo_running() { echo -e "${YELLOW}>>> $1${NC}"; }
 echo_success() { echo -e "${GREEN}>>> $1${NC}"; }
 echo_error()   { echo -e "${RED}>>> $1${NC}"; }
 
-# ── Podman pod configuration ──────────────────────────────────────────────────
+# ── Mode derivation (ecosystem vs standalone) ─────────────────────────────────
 
-POD_NAME="fluent-ai"
-# 5433 avoids conflict with the platform orchestrator's shared DB on 5432.
-# Use DB_PORT=5432 (or set DATABASE_URL in .env) to connect to the platform DB instead.
-DB_PORT="${DB_PORT:-5433}"
-AI_PORT="${AI_PORT:-8200}"
+if [[ -n "${FLUENT_ECOSYSTEM:-}" ]]; then
+  POD_NAME="$FLUENT_POD_NAME"
+  CONTAINER_PREFIX="$FLUENT_CONTAINER_PREFIX"
+  DB_CONTAINER="${CONTAINER_PREFIX}db"
+  AI_CONTAINER="${CONTAINER_PREFIX}ai"
+  PGDATA_VOLUME="${FLUENT_PGDATA_VOLUME:-fluent-pgdata}"
+  DB_PORT="${FLUENT_DB_PORT:-5432}"
+  AI_PORT="${FLUENT_AI_PORT:-8200}"
+  SKIP_DB=1
+else
+  POD_NAME="fluent-ai"
+  CONTAINER_PREFIX="fluent-ai-"
+  DB_CONTAINER="fluent-ai-db"
+  AI_CONTAINER="fluent-ai-ai"
+  PGDATA_VOLUME="fluent-ai-pgdata"
+  DB_PORT="${DB_PORT:-5433}"
+  AI_PORT="${AI_PORT:-8200}"
+  SKIP_DB=0
+fi
 
 # ── Podman pod management ─────────────────────────────────────────────────────
 
@@ -71,12 +85,12 @@ pod_destroy() {
 
 create_volumes() {
   echo_running "Creating volumes..."
-  $RUNTIME volume create fluent-ai-pgdata 2>/dev/null || true
+  $RUNTIME volume create $PGDATA_VOLUME 2>/dev/null || true
 }
 
 wait_for_db() {
   echo_running "Waiting for database to be ready..."
-  while ! $RUNTIME exec fluent-ai-db pg_isready -U postgres -d fluent 2>/dev/null; do
+  while ! $RUNTIME exec $DB_CONTAINER pg_isready -U postgres -d fluent 2>/dev/null; do
     sleep 2
   done
   echo_success "Database is ready"
@@ -85,18 +99,18 @@ wait_for_db() {
 # ── Podman container start functions ──────────────────────────────────────────
 
 start_db_container() {
-  if $RUNTIME container exists fluent-ai-db 2>/dev/null; then
+  if $RUNTIME container exists $DB_CONTAINER 2>/dev/null; then
     echo_success "Database container already exists"
     return
   fi
   echo_running "Starting database container..."
   $RUNTIME run -d \
-    --name fluent-ai-db \
+    --name $DB_CONTAINER \
     --pod "$POD_NAME" \
     -e POSTGRES_USER=postgres \
     -e POSTGRES_PASSWORD=postgres \
     -e POSTGRES_DB=fluent \
-    -v fluent-ai-pgdata:/var/lib/postgresql/data \
+    -v $PGDATA_VOLUME:/var/lib/postgresql/data \
     -v "$SCRIPT_DIR/db/init:/docker-entrypoint-initdb.d" \
     --health-cmd "pg_isready -U postgres -d fluent" \
     --health-interval 5s \
@@ -107,7 +121,7 @@ start_db_container() {
 }
 
 start_ai_container() {
-  if $RUNTIME container exists fluent-ai-ai 2>/dev/null; then
+  if $RUNTIME container exists $AI_CONTAINER 2>/dev/null; then
     echo_success "AI container already exists"
     return
   fi
@@ -127,13 +141,15 @@ start_ai_container() {
 
   echo_running "Starting AI container..."
   $RUNTIME run -d \
-    --name fluent-ai-ai \
+    --name $AI_CONTAINER \
     --pod "$POD_NAME" \
     "${env_flags[@]}" \
     -v "$SCRIPT_DIR/src:/app/src:ro" \
     -v "$SCRIPT_DIR/tests:/app/tests:ro" \
+    -v "$SCRIPT_DIR/scripts:/app/scripts:ro" \
     -v "$SCRIPT_DIR/pyproject.toml:/app/pyproject.toml:ro" \
     -v "$SCRIPT_DIR/uv.lock:/app/uv.lock:ro" \
+    -v "$SCRIPT_DIR/alembic.ini:/app/alembic.ini:ro" \
     -v "$SCRIPT_DIR/docker-entrypoint.sh:/app/docker-entrypoint.sh:ro" \
     --tmpfs /tmp:nosuid,size=64m \
     --tmpfs /app/.cache:noexec,nosuid,size=128m \
@@ -152,10 +168,12 @@ podman_up() {
   local service="${1:-all}"
   case "$service" in
     all)
-      create_volumes
-      pod_create
-      start_db_container
-      wait_for_db
+      if [[ "$SKIP_DB" -eq 0 ]]; then
+        create_volumes
+        pod_create
+        start_db_container
+        wait_for_db
+      fi
       start_ai_container
       echo_success "All services started!"
       ;;
@@ -184,7 +202,7 @@ podman_down() {
     echo_success "All services stopped."
   else
     echo_running "Stopping $service..."
-    $RUNTIME rm -f "fluent-ai-$service" 2>/dev/null || true
+    $RUNTIME rm -f "${CONTAINER_PREFIX}$service" 2>/dev/null || true
     echo_success "$service stopped."
   fi
 }
@@ -196,7 +214,7 @@ podman_restart() {
     podman_up all
   else
     echo_running "Restarting $service..."
-    $RUNTIME rm -f "fluent-ai-$service" 2>/dev/null || true
+    $RUNTIME rm -f "${CONTAINER_PREFIX}$service" 2>/dev/null || true
     case "$service" in
       db) start_db_container ;;
       ai) start_ai_container ;;
@@ -213,7 +231,7 @@ podman_logs() {
   else
     # Route through pod logs --container to avoid direct name-resolution bugs
     # in some podman builds where 'podman logs <hyphenated-name>' fails.
-    $RUNTIME pod logs --container "fluent-ai-$service" -f "$POD_NAME"
+    $RUNTIME pod logs --container "${CONTAINER_PREFIX}$service" -f "$POD_NAME"
   fi
 }
 
@@ -229,35 +247,35 @@ podman_status() {
 podman_shell() {
   local service="${1:-ai}"
   if [ "$service" = "db" ]; then
-    $RUNTIME exec -it fluent-ai-db psql -U postgres -d fluent
+    $RUNTIME exec -it $DB_CONTAINER psql -U postgres -d fluent
   else
-    $RUNTIME exec -it "fluent-ai-$service" sh
+    $RUNTIME exec -it "${CONTAINER_PREFIX}$service" sh
   fi
 }
 
 podman_exec_ai() {
-  if ! $RUNTIME ps --format "{{.Names}}" 2>/dev/null | grep -qx "fluent-ai-ai"; then
+  if ! $RUNTIME ps --format "{{.Names}}" 2>/dev/null | grep -qx "$AI_CONTAINER"; then
     echo_error "AI container is not running. Run './fai.sh up ai' first."
     exit 1
   fi
-  $RUNTIME exec fluent-ai-ai "$@"
+  $RUNTIME exec $AI_CONTAINER "$@"
 }
 
 podman_clean() {
   local service="${1:-all}"
   if [ "$service" = "all" ]; then
     pod_destroy
-    $RUNTIME volume rm fluent-ai-pgdata 2>/dev/null || true
+    $RUNTIME volume rm $PGDATA_VOLUME 2>/dev/null || true
     echo_success "All containers and volumes removed."
   else
-    $RUNTIME rm -f "fluent-ai-$service" 2>/dev/null || true
+    $RUNTIME rm -f "${CONTAINER_PREFIX}$service" 2>/dev/null || true
     echo_success "$service container removed."
   fi
 }
 
 podman_fresh() {
   pod_destroy
-  $RUNTIME volume rm fluent-ai-pgdata 2>/dev/null || true
+  $RUNTIME volume rm $PGDATA_VOLUME 2>/dev/null || true
   $RUNTIME rmi -f fluent-ai 2>/dev/null || true
   echo_success "Removed all containers, volumes, and images."
 }
@@ -275,7 +293,7 @@ podman_build() {
 }
 
 podman_db_psql() {
-  $RUNTIME exec -it fluent-ai-db psql -U postgres -d fluent
+  $RUNTIME exec -it $DB_CONTAINER psql -U postgres -d fluent
 }
 
 # ── Docker Compose command functions ──────────────────────────────────────────
@@ -301,11 +319,14 @@ compose_down() {
 }
 
 compose_restart() {
+  # `docker compose restart` does NOT re-read env_file or recreate the
+  # container, so changes to .env are silently ignored. We force-recreate
+  # instead to match the podman path's behaviour (which always rm+starts).
   local service="${1:-}"
   if [ -z "$service" ] || [ "$service" = "all" ]; then
-    $COMPOSE_CMD restart
+    $COMPOSE_CMD up -d --force-recreate
   else
-    $COMPOSE_CMD restart "$service"
+    $COMPOSE_CMD up -d --force-recreate --no-deps "$service"
   fi
 }
 
@@ -371,20 +392,20 @@ exec_ai() {
 
 # ── Runtime mode display ──────────────────────────────────────────────────────
 
-echo "Runtime mode: $RUNTIME_MODE"
-if [ "$RUNTIME_MODE" = "podman-pod" ]; then
-  echo "Using native Podman pods"
-else
-  echo "Using Docker Compose (${COMPOSE_CMD})"
-fi
-echo ""
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  detect_runtime
+  echo "Runtime mode: $RUNTIME_MODE"
+  if [ "$RUNTIME_MODE" = "podman-pod" ]; then
+    echo "Using native Podman pods"
+  else
+    echo "Using Docker Compose (${COMPOSE_CMD})"
+  fi
+  echo ""
 
-# ── Commands ──────────────────────────────────────────────────────────────────
+  cmd="${1:-help}"
+  shift || true
 
-cmd="${1:-help}"
-shift || true
-
-case "$cmd" in
+  case "$cmd" in
   up)
     if [ "$RUNTIME_MODE" = "podman-pod" ]; then
       podman_up "${1:-all}"
@@ -466,13 +487,34 @@ case "$cmd" in
   # ── Database commands ──────────────────────────────────────────────────────
 
   db:migrate)
-    echo_running "Running fluent-ai migrations..."
-    echo "  (no migrations configured yet)"
+    echo_running "Applying ai-schema migrations..."
+    exec_ai uv run alembic upgrade head
+    ;;
+
+  db:revision)
+    msg="${1:-}"
+    if [[ -z "$msg" ]]; then
+      echo_error "Usage: ./fai.sh db:revision \"<message>\""
+      exit 1
+    fi
+    shift
+    echo_running "Generating Alembic revision: $msg"
+    exec_ai uv run alembic revision --autogenerate -m "$msg" "$@"
+    ;;
+
+  db:downgrade)
+    target="${1:--1}"
+    echo_running "Downgrading to $target..."
+    exec_ai uv run alembic downgrade "$target"
+    ;;
+
+  db:history)
+    exec_ai uv run alembic history --verbose
     ;;
 
   db:seed)
-    echo_running "Running fluent-ai seeds..."
-    echo "  (no seeds configured yet)"
+    echo_running "Running ai-schema seeds..."
+    exec_ai env PYTHONPATH=/app/src uv run python -m app.db.seeds
     ;;
 
   db:psql)
@@ -567,9 +609,12 @@ Development (runs in AI container):
   run <command>          Run a uv command inside the AI container
 
 Database:
-  db:migrate             Run AI schema migrations (TODO)
-  db:seed                Run AI seeds (TODO)
-  db:psql                Open psql session
+  db:migrate                 Apply ai-schema Alembic migrations (upgrade head)
+  db:revision "<msg>"        Generate a new --autogenerate revision
+  db:downgrade [target]      Downgrade to target (default: -1)
+  db:history                 Show Alembic revision history
+  db:seed                    Run ai-schema seeds (idempotent)
+  db:psql                    Open psql session
 
 Lifecycle:
   clean [service]        Remove containers and volumes (default: all)
@@ -583,4 +628,5 @@ Environment variables:
   DATABASE_URL           Override DB connection (set in .env to use platform DB)
 USAGE
     ;;
-esac
+  esac
+fi
