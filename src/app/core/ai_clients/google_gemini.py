@@ -6,15 +6,12 @@ interface for content generation.
 """
 
 from google import genai
+from google.genai import types
 
 from app.config import Settings
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import ExternalServiceException
 
-try:
-    from google.genai import types
-except ImportError:
-    pass
 
 class GoogleGeminiClient:
     """Async client for the Google Gemini generative AI API."""
@@ -30,8 +27,8 @@ class GoogleGeminiClient:
         self._client = genai.Client(api_key=settings.google_ai_api_key)
 
     async def generate_content(
-        self, 
-        prompt: str, 
+        self,
+        prompt: str,
         system_instruction: str | None = None,
         response_mime_type: str | None = None,
     ) -> str:
@@ -45,16 +42,16 @@ class GoogleGeminiClient:
                 "model": self._model_name,
                 "contents": prompt,
             }
-            
+
             if system_instruction or response_mime_type:
                 config_args = {}
                 if system_instruction:
                     config_args["system_instruction"] = system_instruction
                 if response_mime_type:
                     config_args["response_mime_type"] = response_mime_type
-                    
+
                 kwargs["config"] = types.GenerateContentConfig(**config_args)
-                
+
             response = await self._client.aio.models.generate_content(**kwargs)
             return response.text or ""
         except Exception as exc:

@@ -141,7 +141,7 @@ async def get_context_verses_for_prompt(
         # Step 1: Look up project's source and target language IDs
         # ------------------------------------------------------------------
         stmt = (
-            select(Project.source_language, Project.target_language)
+            select(Project.source_language, Project.target_language, Project.organization)
             .join(ProjectUnit, ProjectUnit.project_id == Project.id)
             .where(ProjectUnit.id == project_unit_id)
             .limit(1)
@@ -155,7 +155,7 @@ async def get_context_verses_for_prompt(
             )
             return []
 
-        source_lang_id, target_lang_id = project_langs
+        source_lang_id, target_lang_id, organization_id = project_langs
 
         # ------------------------------------------------------------------
         # Step 2: Resolve source language code for dynamic FTS configuration
@@ -222,6 +222,8 @@ async def get_context_verses_for_prompt(
                     and_(
                         Project.target_language == target_lang_id,
                         Project.source_language == source_lang_id,
+                        Project.organization == organization_id,
+                        BibleText.bible_id == bible_id,
                         TranslatedVerse.content != None,
                         TranslatedVerse.content != "",
                         # Exclude the verse we are about to translate
@@ -265,6 +267,8 @@ async def get_context_verses_for_prompt(
             where_conditions = [
                 Project.target_language == target_lang_id,
                 Project.source_language == source_lang_id,
+                Project.organization == organization_id,
+                BibleText.bible_id == bible_id,
                 TranslatedVerse.content != None,
                 TranslatedVerse.content != "",
                 not_(

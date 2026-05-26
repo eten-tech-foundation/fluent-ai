@@ -29,6 +29,7 @@ Error Resilience:
 
 import asyncio
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal
@@ -175,13 +176,23 @@ async def process_job(
             )
 
             if bible_text:
-                suggestion = AiSuggestion(
-                    bible_text_id=bible_text.id,
-                    project_unit_id=job.project_unit_id,
-                    suggested_text=item.target_text,
-                    model_info=translation_service.settings.google_ai_model,
+                stmt = (
+                    insert(AiSuggestion)
+                    .values(
+                        bible_text_id=bible_text.id,
+                        project_unit_id=job.project_unit_id,
+                        suggested_text=item.target_text,
+                        model_info=translation_service.settings.google_ai_model,
+                    )
+                    .on_conflict_do_update(
+                        index_elements=["bible_text_id", "project_unit_id"],
+                        set_={
+                            "suggested_text": item.target_text,
+                            "model_info": translation_service.settings.google_ai_model,
+                        },
+                    )
                 )
-                db.add(suggestion)
+                await db.execute(stmt)
 
         job.status = "completed"
         await db.commit()

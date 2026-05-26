@@ -103,6 +103,13 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = Field(default=None)
     google_ai_api_key: str | None = Field(default=None)
     google_ai_model: str = Field(default="gemini-2.5-flash-lite")
+    enable_suggestion_worker: bool = Field(
+        default=False,
+        description=(
+            "Run the in-process AI suggestion queue worker. Keep disabled for API "
+            "web processes unless this instance is intentionally the single worker."
+        ),
+    )
 
     @property
     def is_production(self) -> bool:

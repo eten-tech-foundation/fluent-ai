@@ -41,19 +41,23 @@ async def lifespan(app: FastAPI):
         log_output=settings.log_output,
         log_file=settings.log_file_path,
     )
-    
-    # Start the background worker
-    worker_task = asyncio.create_task(worker_loop())
-    
+
+    worker_task: asyncio.Task | None = None
+    if settings.enable_suggestion_worker:
+        worker_task = asyncio.create_task(worker_loop())
+        logger.info("AI suggestion worker started")
+    else:
+        logger.info("AI suggestion worker disabled")
+
     yield
-    
-    # Cancel the worker on shutdown
-    worker_task.cancel()
-    try:
-        await worker_task
-    except asyncio.CancelledError:
-        pass
-        
+
+    if worker_task:
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
+
     logger.info("Application shutting down")
 
 
