@@ -34,10 +34,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal
 from app.logging.utils import get_logger
-from app.internal.models import (
-    AiSuggestionJob, AiSuggestion, BibleText, Book,
-    Project, ProjectUnit, Language,
-)
+from app.models.ai_suggestion import AiSuggestion, AiSuggestionJob
+from app.internal.platform_models import BibleText, Book, Language, ProjectUnit
+from app.internal.project import Project
 from app.services.context_retrieval import get_context_verses_for_prompt
 from app.core.ai_clients.google_gemini import GoogleGeminiClient
 from app.services.translation_service import TranslationService

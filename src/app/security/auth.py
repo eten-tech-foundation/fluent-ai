@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import AuthenticationException, AuthorizationException
-from app.internal.models import ApiKey
 from app.models.api_key import ApiKey
 from app.logging.utils import get_logger
 from app.services.api_key import get_api_key_by_hash

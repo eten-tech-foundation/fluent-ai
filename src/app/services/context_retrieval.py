@@ -29,9 +29,8 @@ from sqlalchemy import select, and_, not_, case, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.logging.utils import get_logger
-from app.internal.models import (
-    Project, ProjectUnit, BibleText, TranslatedVerse, Book, Language
-)
+from app.internal.platform_models import BibleText, Book, Language, ProjectUnit, TranslatedVerse
+from app.internal.project import Project
 from app.core.bible_metadata import get_context_book_codes
 from app.core.constants import MAX_CONTEXT_VERSES_FTS
 

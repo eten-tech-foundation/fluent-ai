@@ -7,6 +7,7 @@ Models for tables this service does NOT own live under app/internal/ and
 inherit from ExternalBase instead.
 """
 
+from app.models.ai_suggestion import AiSuggestion, AiSuggestionJob
 from app.models.api_key import ApiKey
 
-__all__ = ["ApiKey"]
+__all__ = ["ApiKey", "AiSuggestionJob", "AiSuggestion"]

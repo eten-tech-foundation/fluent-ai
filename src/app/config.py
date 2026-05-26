@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 
 from pydantic import Field, model_validator
@@ -112,6 +113,12 @@ class Settings(BaseSettings):
             "Fraction of INFO-level request logs to emit (0.0–1.0). "
             "1.0 = log everything. Reduce for high-throughput endpoints."
         ),
+    )
+
+    # AI Suggestion Worker
+    enable_suggestion_worker: bool = Field(
+        default=True,
+        description="Enable the background AI suggestion worker loop.",
     )
 
     # External AI Services

@@ -2,6 +2,7 @@
 main.py — FastAPI application factory for the Fluent AI service.
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -17,6 +18,7 @@ from app.middleware.request_id import RequestIDMiddleware
 from app.routers import projects, translations
 from app.internal import admin
 from app.services.greek_room.repeated_words import RepeatedWordsService
+from app.worker.suggestion_processor import worker_loop
 
 
 settings = get_settings()

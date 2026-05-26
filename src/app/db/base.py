@@ -27,3 +27,4 @@ class ExternalBase(DeclarativeBase):
 # Import owned-schema models so Alembic autogenerate can detect them.
 # Do NOT import ExternalBase models here — Alembic must never see them.
 from app.models import api_key  # noqa: E402, F401
+from app.models import ai_suggestion  # noqa: E402, F401

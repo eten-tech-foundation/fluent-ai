@@ -10,10 +10,6 @@ of hardcoding values in business logic.
 # AI Suggestions Queue
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# AI Suggestions Queue
-# ---------------------------------------------------------------------------
-
 # How often (in seconds) the background worker polls the job table
 # when no jobs are available.
 WORKER_POLL_INTERVAL_SECONDS = 5
@@ -26,6 +22,10 @@ WORKER_MAX_CONSECUTIVE_FAILURES = 5
 # permanently marked as 'failed'.
 MAX_JOB_RETRIES = 3
 
+# Number of verses to queue ahead of the current verse when using
+# the suggestion_queue service.
+SUGGESTION_QUEUE_N_AHEAD = 5
+
 # ---------------------------------------------------------------------------
 # Context Retrieval (Translation Memory)
 # ---------------------------------------------------------------------------
@@ -37,3 +37,4 @@ MAX_CONTEXT_VERSES_TOTAL = 50
 # Of the total, how many slots are reserved for FTS (lexical similarity)
 # matches. The remainder is filled by proximity/genre-based matches.
 MAX_CONTEXT_VERSES_FTS = 25
+
