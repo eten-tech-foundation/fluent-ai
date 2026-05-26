@@ -11,6 +11,9 @@ from google.genai import types
 from app.config import Settings
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import ExternalServiceException
+from app.logging.utils import get_logger
+
+logger = get_logger(__name__)
 
 
 class GoogleGeminiClient:
@@ -55,6 +58,7 @@ class GoogleGeminiClient:
             response = await self._client.aio.models.generate_content(**kwargs)
             return response.text or ""
         except Exception as exc:
+            logger.error(f"Gemini API call failed: {exc}", exc_info=True)
             raise ExternalServiceException(
                 message="Google Gemini API request failed.",
                 code=ErrorCode.EXTERNAL_SERVICE_ERROR,

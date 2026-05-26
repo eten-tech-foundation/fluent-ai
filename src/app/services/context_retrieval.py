@@ -182,7 +182,7 @@ async def get_context_verses_for_prompt(
             .join(Book, BibleText.book_id == Book.id)
             .where(
                 BibleText.bible_id == bible_id,
-                Book.code == target_book_code,
+                Book.code == target_book_code.upper(),
                 BibleText.chapter_number == target_chapter_number,
                 BibleText.verse_number == target_verse_number,
             )
@@ -228,7 +228,7 @@ async def get_context_verses_for_prompt(
                         # Exclude the verse we are about to translate
                         not_(
                             and_(
-                                Book.code == target_book_code,
+                                Book.code == target_book_code.upper(),
                                 BibleText.chapter_number == target_chapter_number,
                                 BibleText.verse_number == target_verse_number,
                             )
@@ -260,7 +260,7 @@ async def get_context_verses_for_prompt(
 
         if prox_limit > 0:
             prioritized_codes = get_context_book_codes(target_book_code)
-            whens = {code: idx for idx, code in enumerate(prioritized_codes)}
+            whens = {code.upper(): idx for idx, code in enumerate(prioritized_codes)}
             book_priority = case(whens, value=Book.code, else_=999)
 
             where_conditions = [
@@ -272,7 +272,7 @@ async def get_context_verses_for_prompt(
                 TranslatedVerse.content != "",
                 not_(
                     and_(
-                        Book.code == target_book_code,
+                        Book.code == target_book_code.upper(),
                         BibleText.chapter_number == target_chapter_number,
                         BibleText.verse_number == target_verse_number,
                     )

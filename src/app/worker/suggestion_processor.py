@@ -108,7 +108,7 @@ async def process_job(
             .join(Book, BibleText.book_id == Book.id)
             .where(
                 BibleText.bible_id == job.bible_id,
-                Book.code == job.book_code,
+                Book.code == job.book_code.upper(),
                 BibleText.chapter_number == job.chapter_number,
                 BibleText.verse_number >= job.verse_start,
                 BibleText.verse_number <= job.verse_end,
