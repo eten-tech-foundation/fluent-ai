@@ -5,8 +5,6 @@ transaction, and commits. Idempotency is each individual seed's
 responsibility.
 """
 
-from __future__ import annotations
-
 from app.config import get_settings
 from app.database import AsyncSessionLocal
 from app.db.seeds.api_keys import seed_admin_api_keys

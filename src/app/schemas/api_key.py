@@ -1,6 +1,4 @@
 # src/app/schemas/api_key.py
-from __future__ import annotations
-
 import uuid
 from datetime import datetime
 

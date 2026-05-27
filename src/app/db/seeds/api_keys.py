@@ -14,8 +14,6 @@ Two rows may be seeded:
         set. The raw key is never stored or logged.
 """
 
-from __future__ import annotations
-
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 

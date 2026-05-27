@@ -6,8 +6,6 @@ Access: SELECT only — ai_user has role_ai_reader on the public schema.
 Base:   ExternalBase (from app.db.base) — excluded from Alembic metadata.
 """
 
-from __future__ import annotations
-
 from datetime import datetime
 from typing import Any
 
