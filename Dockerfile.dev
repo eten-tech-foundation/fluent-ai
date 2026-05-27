@@ -35,9 +35,6 @@ COPY --chown=python:python docker-entrypoint.sh alembic.ini ./
 # Create log directory for file-based logging (LOG_OUTPUT=file|both)
 RUN mkdir -p /app/logs
 
-# Create log directory for file-based logging (LOG_OUTPUT=file|both)
-RUN mkdir -p /app/logs
-
 # Set ownership for app directory
 RUN chown -R python:python /app
 

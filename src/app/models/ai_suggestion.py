@@ -5,11 +5,9 @@ Access: full DML — this service creates, updates, and reads suggestion jobs/re
 Base:   OwnedBase (from app.db.base).
 """
 
-from __future__ import annotations
-
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text, text
+from sqlalchemy import DateTime, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import OwnedBase
@@ -29,7 +27,25 @@ class AiSuggestionJob(OwnedBase):
     """
 
     __tablename__ = "ai_suggestion_jobs"
-    __table_args__ = {"schema": "ai"}
+    __table_args__ = (
+        Index("idx_ai_suggestion_jobs_status_created", "status", "created_at"),
+        Index(
+            "idx_ai_suggestion_jobs_dedup",
+            "project_unit_id",
+            "bible_id",
+            "book_code",
+            "chapter_number",
+        ),
+        UniqueConstraint(
+            "project_unit_id",
+            "book_code",
+            "chapter_number",
+            "verse_start",
+            "verse_end",
+            name="uq_ai_jobs_range",
+        ),
+        {"schema": "ai"},
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     project_unit_id: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -38,11 +54,19 @@ class AiSuggestionJob(OwnedBase):
     chapter_number: Mapped[int] = mapped_column(Integer, nullable=False)
     verse_start: Mapped[int] = mapped_column(Integer, nullable=False)
     verse_end: Mapped[int] = mapped_column(Integer, nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'queued'"))
-    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'queued'")
+    )
+    retry_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime | None] = mapped_column(DateTime, server_default=text("now()"))
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime, server_default=text("now()"))
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, server_default=text("now()")
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, server_default=text("now()")
+    )
 
 
 class AiSuggestion(OwnedBase):
@@ -55,11 +79,19 @@ class AiSuggestion(OwnedBase):
     """
 
     __tablename__ = "ai_suggestions"
-    __table_args__ = {"schema": "ai"}
+    __table_args__ = (
+        Index("idx_ai_suggestions_lookup", "project_unit_id", "bible_text_id"),
+        UniqueConstraint(
+            "bible_text_id", "project_unit_id", name="uq_ai_suggestions_per_text_unit"
+        ),
+        {"schema": "ai"},
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     bible_text_id: Mapped[int] = mapped_column(Integer, nullable=False)
     project_unit_id: Mapped[int] = mapped_column(Integer, nullable=False)
     suggested_text: Mapped[str] = mapped_column(Text, nullable=False)
     model_info: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    created_at: Mapped[datetime | None] = mapped_column(DateTime, server_default=text("now()"))
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, server_default=text("now()")
+    )

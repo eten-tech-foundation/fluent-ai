@@ -5,8 +5,6 @@ Access: full DML — this service creates, updates, and revokes API keys.
 Base:   OwnedBase (from app.db.base).
 """
 
-from __future__ import annotations
-
 import uuid
 from datetime import datetime
 
@@ -16,9 +14,11 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     DateTime,
+    Index,
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -28,6 +28,11 @@ from app.db.base import OwnedBase
 class ApiKey(OwnedBase):
     __tablename__ = "api_keys"
     __table_args__ = (
+        Index(
+            "idx_api_keys_key_hash",
+            "key_hash",
+            postgresql_where=text("is_active = true"),
+        ),
         CheckConstraint(
             "num_nonnulls(owner_user_id, owner_org_id) = 1",
             name="ck_api_keys_single_owner",

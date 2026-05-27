@@ -6,8 +6,6 @@ Access: SELECT only — ai_user has role_ai_reader on the public schema.
 Base:   ExternalBase (from app.db.base) — excluded from Alembic metadata.
 """
 
-from __future__ import annotations
-
 from sqlalchemy import Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
