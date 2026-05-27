@@ -7,7 +7,16 @@ Base:   OwnedBase (from app.db.base).
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import OwnedBase
@@ -95,4 +104,27 @@ class AiSuggestion(OwnedBase):
     model_info: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime, server_default=text("now()")
+    )
+
+
+class AiSuggestionUsageLog(OwnedBase):
+    """Tracks whether an AI suggestion was viewed or used by a user."""
+
+    __tablename__ = "ai_suggestion_usage_log"
+    __table_args__ = (
+        Index("idx_ai_usage_user", "user_id"),
+        Index("idx_ai_usage_project_unit", "project_unit_id"),
+        UniqueConstraint("user_id", "bible_text_id", name="uq_ai_usage_user_text"),
+        {"schema": "ai"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    bible_text_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    project_unit_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    was_used: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=False, server_default=text("now()")
     )
