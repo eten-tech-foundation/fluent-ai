@@ -38,6 +38,7 @@ class AiSuggestionJob(OwnedBase):
         ),
         UniqueConstraint(
             "project_unit_id",
+            "bible_id",
             "book_code",
             "chapter_number",
             "verse_start",
