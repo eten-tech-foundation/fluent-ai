@@ -135,7 +135,6 @@ function Start-DbContainer {
         -e POSTGRES_PASSWORD=postgres `
         -e POSTGRES_DB=fluent `
         -v fluent-ai-pgdata:/var/lib/postgresql/data `
-        -v "${ScriptDir}\db\init:/docker-entrypoint-initdb.d" `
         --health-cmd "pg_isready -U postgres -d fluent" `
         --health-interval 5s `
         --health-timeout 5s `
@@ -153,7 +152,9 @@ function Start-AiContainer {
     & $Runtime build -t fluent-ai $ScriptDir -f Dockerfile.dev
 
     $envFlags = @(
-        "-e", "DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/fluent",
+        "-e", "BOOTSTRAP_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/fluent",
+        "-e", "MIGRATIONS_DATABASE_URL=postgresql+asyncpg://ai_migrator:password@localhost:5432/fluent",
+        "-e", "DATABASE_URL=postgresql+asyncpg://ai_user:password@localhost:5432/fluent",
         "-e", "ENVIRONMENT=development",
         "-e", "DEBUG=true",
         "-e", "UV_CACHE_DIR=/app/.cache/uv"
@@ -586,7 +587,9 @@ Lifecycle:
 Environment variables:
   DB_PORT                Standalone DB host port (default: 5433; use 5432 for platform DB)
   AI_PORT                AI service host port (default: 8200)
-  DATABASE_URL           Override DB connection (set in .env to use platform DB)
+  BOOTSTRAP_DATABASE_URL Superuser URL the container uses to self-provision (bootstrap)
+  MIGRATIONS_DATABASE_URL  ai_migrator URL for Alembic migrations (DDL)
+  DATABASE_URL           ai_user runtime URL (least-privilege; set in .env to use platform DB)
 "@
     }
 }
