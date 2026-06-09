@@ -40,7 +40,7 @@ def with_db_retry(
             while True:
                 try:
                     return await func(*args, **kwargs)
-                except OperationalError, TimeoutError:
+                except (OperationalError, TimeoutError):
                     retries += 1
                     if retries > max_retries:
                         logger.error(

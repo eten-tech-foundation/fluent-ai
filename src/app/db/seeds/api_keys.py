@@ -44,7 +44,9 @@ PROD_KEY_NAME = "Admin Key"
 ADMIN_OWNER_USER_ID = 97
 
 
-async def _upsert_admin_key(session: AsyncSession, *, key_hash: str, name: str) -> bool:
+async def _upsert_admin_key(
+    session: AsyncSession, *, key_hash: str, name: str
+) -> bool:
     """Insert an admin key by hash; return True if a new row was created."""
     stmt = (
         pg_insert(ApiKey)
