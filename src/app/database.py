@@ -2,9 +2,8 @@
 database.py — Async SQLAlchemy engine and session management.
 
 The AI service connects as `ai_user`:
-  - SELECT on public schema   (via role_ai_reader)
-  - Full DML on ai schema     (via role_ai_data)
-  - Full DML on pgboss schema (via role_pgboss_user)
+  - Full DML on the `ai` schema (its own data only).
+  - No access to any other schema. API data is fetched over HTTP, never via SQL.
 """
 
 from collections.abc import AsyncGenerator
