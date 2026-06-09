@@ -57,9 +57,9 @@ function Write-Err([string]$msg)     { Write-Host ">>> $msg" -ForegroundColor Re
 # ── Podman pod configuration ──────────────────────────────────────────────────
 
 $PodName = "fluent-ai"
-# 5433 avoids conflict with the platform orchestrator's shared DB on 5432.
-# Use DB_PORT=5432 (or set DATABASE_URL in .env) to connect to the platform DB instead.
-$DbPort  = if ($env:DB_PORT)  { $env:DB_PORT }  else { "5433" }
+# Standalone uses 5432, same as the platform DB; don't run both at the same time.
+# Override with DB_PORT, or set DATABASE_URL in .env to point at another DB.
+$DbPort  = if ($env:DB_PORT)  { $env:DB_PORT }  else { "5432" }
 $AiPort  = if ($env:AI_PORT)  { $env:AI_PORT }  else { "8200" }
 
 # ── Podman helpers ────────────────────────────────────────────────────────────
@@ -547,14 +547,14 @@ switch ($Command) {
 Usage: .\fai.ps1 <command> [service] [args]
 
 Operating modes:
-  Standalone  .\fai.ps1 up         -- own DB on 5433 + AI service (safe alongside platform)
+  Standalone  .\fai.ps1 up         -- own DB on 5432 + AI service (run one service at a time)
   Service     .\fai.ps1 up ai      -- AI only; point DATABASE_URL at an existing DB
   Ecosystem   .\fluent.ps1 up      -- platform orchestrator owns the shared DB on 5432
 
 Services: db | ai | (omit for all)
 
 Container management:
-  up [service]           Start services (default: all -- DB on 5433, then AI)
+  up [service]           Start services (default: all -- DB on 5432, then AI)
   down [service]         Stop and remove services (default: all)
   restart [service]      Restart services (default: all)
   logs [service]         Tail logs (default: all)
@@ -585,7 +585,7 @@ Lifecycle:
   setup                  Create .env from .env.example if missing
 
 Environment variables:
-  DB_PORT                Standalone DB host port (default: 5433; use 5432 for platform DB)
+  DB_PORT                Standalone DB host port (default: 5432)
   AI_PORT                AI service host port (default: 8200)
   BOOTSTRAP_DATABASE_URL Superuser URL the container uses to self-provision (bootstrap)
   MIGRATIONS_DATABASE_URL  ai_migrator URL for Alembic migrations (DDL)

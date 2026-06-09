@@ -56,7 +56,7 @@ else
   DB_CONTAINER="fluent-ai-db"
   AI_CONTAINER="fluent-ai-ai"
   PGDATA_VOLUME="fluent-ai-pgdata"
-  DB_PORT="${DB_PORT:-5433}"
+  DB_PORT="${DB_PORT:-5432}"
   AI_PORT="${AI_PORT:-8200}"
   SKIP_DB=0
 fi
@@ -586,14 +586,14 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 Usage: ./fai.sh <command> [service] [args]
 
 Operating modes:
-  Standalone  ./fai.sh up          — own DB on 5433 + AI service (safe alongside platform)
+  Standalone  ./fai.sh up          — own DB on 5432 + AI service (run one service at a time)
   Service     ./fai.sh up ai       — AI only; point DATABASE_URL at an existing DB
   Ecosystem   ./fluent.sh up       — platform orchestrator owns the shared DB on 5432
 
 Services: db | ai | (omit for all)
 
 Container management:
-  up [service]           Start services (default: all — DB on 5433, then AI)
+  up [service]           Start services (default: all — DB on 5432, then AI)
   down [service]         Stop and remove services (default: all)
   restart [service]      Restart services (default: all)
   logs [service]         Tail logs (default: all)
@@ -624,7 +624,7 @@ Lifecycle:
   setup                  Create .env from .env.example if missing
 
 Environment variables:
-  DB_PORT                Standalone DB host port (default: 5433; use 5432 for platform DB)
+  DB_PORT                Standalone DB host port (default: 5432)
   AI_PORT                AI service host port (default: 8200)
   BOOTSTRAP_DATABASE_URL Superuser URL the container uses to self-provision (bootstrap)
   MIGRATIONS_DATABASE_URL  ai_migrator URL for Alembic migrations (DDL)

@@ -7,7 +7,7 @@ Managed with `uv`, containerized with Docker Compose (Docker) or native Podman p
 
 | Mode | Command | DB port | When to use |
 |---|---|---|---|
-| **Standalone** | `./fai.sh up` | 5433 | Working on this service in isolation |
+| **Standalone** | `./fai.sh up` | 5432 | Working on this service in isolation |
 | **Service-only** | `./fai.sh up ai` | — (external) | Platform's DB is already running |
 | **Ecosystem** | `./fluent.sh up` (fluent-platform) | 5432 | Full integration work |
 
@@ -26,7 +26,7 @@ To connect a standalone service to the platform DB, set `DATABASE_URL` in `.env`
 ```bash
 ./fai.sh setup          # Copy .env.example → .env
 # Fill in API keys and credentials in .env
-./fai.sh up             # Start DB on 5433 + AI service on 8200
+./fai.sh up             # Start DB on 5432 + AI service on 8200
 curl http://localhost:8200/health
 ```
 
@@ -76,14 +76,14 @@ Windows: use `fai.ps1` with the same commands.
 **Podman (native pod):**
 ```
 Pod: fluent-ai
-  fluent-ai-db   postgres:16-alpine   host:5433 → pod:5432
+  fluent-ai-db   postgres:16-alpine   host:5432 → pod:5432
   fluent-ai-ai   fluent-ai (local)    host:8200 → pod:8200
 Volume: fluent-ai-pgdata
 ```
 
 **Docker Compose:**
 ```
-db   postgres:16-alpine   host:5433 → container:5432
+db   postgres:16-alpine   host:5432 → container:5432
 ai   fluent-ai (built)    host:8200 → container:8200
 ```
 
@@ -91,8 +91,9 @@ ai   fluent-ai (built)    host:8200 → container:8200
 
 - **Source bind-mount** — `src/` is mounted into the container so FastAPI dev mode
   hot-reloads on every file save without a rebuild.
-- **Standalone DB on 5433** — avoids port conflict with the platform orchestrator's
-  shared DB on 5432. Override with `DB_PORT=5432` if needed.
+- **Standalone DB on 5432** — same port as the platform/API shared DB. Don't run the
+  standalone AI stack at the same time as the platform (both bind host 5432). Override
+  with `DB_PORT`.
 - **Read-only container** — AI container runs with `--read-only`, `--cap-drop ALL`, and
   `--user 1001:1001`. Writable scratch space is provided via `--tmpfs /tmp` and
   `--tmpfs /app/.cache`.
@@ -164,9 +165,6 @@ Admin-only endpoints additionally require the key to have the `"admin"` permissi
 |---|---|---|---|
 | `GET` | `/` | — | Welcome message |
 | `GET` | `/health` | — | Health check |
-| `GET` | `/projects/` | API key | List projects (paginated) |
-| `GET` | `/projects/{id}` | API key | Get project by ID |
-| `GET` | `/projects/_verify-permissions` | Admin | Verify DB role grants |
 | `POST` | `/api-keys/` | Admin | Create a new API key |
 | `GET` | `/api-keys/` | Admin | List all API keys |
 | `PATCH` | `/api-keys/{key_id}` | Admin | Update key name, permissions, or expiry |

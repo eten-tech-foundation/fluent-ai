@@ -11,7 +11,7 @@ There are three ways to run the service:
 
 | Mode | Command | DB port | When to use |
 |---|---|---|---|
-| **Standalone** | `./fai.sh up` | 5433 | Working on this service only |
+| **Standalone** | `./fai.sh up` | 5432 | Working on this service only |
 | **Service-only** | `./fai.sh up ai` | — (external) | Platform's DB already running |
 | **Ecosystem** | `./fluent.sh up` (in fluent-platform) | 5432 | Full integration work |
 
@@ -23,7 +23,7 @@ in service-only mode alongside `fluent.sh`.
 ```bash
 # Container workflow (preferred)
 ./fai.sh setup          # Create .env from .env.example
-./fai.sh up             # Start DB (port 5433) + AI service (port 8200)
+./fai.sh up             # Start DB (port 5432) + AI service (port 8200)
 ./fai.sh up db          # Start only the database
 ./fai.sh up ai          # Start only the AI service
 ./fai.sh down           # Stop and remove all services
@@ -276,7 +276,7 @@ inside the pod/compose network). Override in `.env` to point at the platform DB 
 
 ```
 Pod: fluent-ai
-  fluent-ai-db   postgres:16-alpine   host:5433 → pod:5432
+  fluent-ai-db   postgres:16-alpine   host:5432 → pod:5432
   fluent-ai-ai   fluent-ai (local)    host:8200 → pod:8200
 Volume: fluent-ai-pgdata
 ```
@@ -284,7 +284,7 @@ Volume: fluent-ai-pgdata
 ### Docker Compose layout
 
 ```
-Service: db    postgres:16-alpine   host:5433 → container:5432
+Service: db    postgres:16-alpine   host:5432 → container:5432
 Service: ai    fluent-ai (built)    host:8200 → container:8200
 ```
 
