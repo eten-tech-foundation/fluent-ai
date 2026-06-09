@@ -2,9 +2,10 @@
 
 As of the DB-ownership separation, `fluent-ai` no longer has any read access to
 API-owned (`public`) tables. The following code read API tables directly and was
-removed. Each item must be re-implemented as an HTTP call to the fluent-api
-(authenticated via the service principal / `FLUENT_AI_URL`) when the feature
-that needs it is built.
+removed. Each item must be re-implemented as an HTTP call to fluent-api
+(authenticated via the service principal) when the feature that needs it is
+built. The AI→API base URL is future config — note `FLUENT_AI_URL` is the
+reverse (API→AI) direction, not this one.
 
 | Data needed | Old direct-read site (removed) | Replacement |
 |---|---|---|

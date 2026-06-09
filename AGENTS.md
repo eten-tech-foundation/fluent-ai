@@ -326,9 +326,10 @@ This service owns **only the `ai` schema** in the shared PostgreSQL database
   `include_object` filters in `env.py` to refuse to generate or apply any change
   outside `ai`. The `alembic_version` bookkeeping table lives in the `ai` schema
   for the same reason.
-- **API data is fetched over HTTP** (`FLUENT_AI_URL`), never by reading API tables.
-  See `docs/api-data-dependencies.md` for the data this service consumes and the
-  endpoints it calls.
+- **API data is fetched over HTTP** from fluent-api, never by reading API tables.
+  (The AI→API HTTP client and its base-URL config are future work — note that the
+  existing `FLUENT_AI_URL` is the reverse, API→AI, direction.) See
+  `docs/api-data-dependencies.md` for the data this service consumes.
 
 ### Adding a new `ai`-schema table
 
