@@ -116,14 +116,13 @@ src/app/
 │   └── exceptions.py    # Custom exception types (scaffold)
 ├── db/                  # DB infrastructure scaffold (session, base, migrations)
 ├── internal/
-│   ├── models.py        # SQLAlchemy ORM models (Project, ApiKey)
 │   └── admin.py         # Admin router (not yet mounted)
-├── models/              # Standard model location (scaffold)
-├── routers/
-│   └── projects.py      # /projects/* route handlers
+├── models/              # SQLAlchemy ORM models (ai schema; api_key.py)
+├── routers/             # (empty — legacy cross-schema projects router removed)
 ├── schemas/
 │   ├── api_key.py       # ApiKeyCreate, ApiKeyCreated, ApiKeyInfo, ApiKeyUpdate
-│   └── projects.py      # ProjectResponse, ProjectListResponse
+│   ├── greek_room.py    # Greek Room tool schemas
+│   └── tool_job.py      # Tool-job execution schemas
 ├── security/
 │   └── auth.py          # require_api_key, require_admin dependencies
 └── services/
@@ -133,7 +132,7 @@ tests/
 └── api/v1/
     └── test_api_keys.py # Endpoint tests for /api-keys/*
 
-db/init/                 # SQL scripts run on first DB start
+scripts/                 # bootstrap.py — idempotent DB provisioning (roles/schema/grants)
 Dockerfile               # Production multi-stage build
 Dockerfile.dev           # Development build
 compose.yaml             # Docker Compose (standalone dev)
