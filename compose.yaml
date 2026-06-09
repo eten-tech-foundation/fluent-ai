@@ -9,7 +9,6 @@ services:
       - "${DB_PORT:-5433}:5432"
     volumes:
       - fluent-pgdata:/var/lib/postgresql/data
-      - ./db/init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d fluent"]
       interval: 5s
@@ -37,6 +36,9 @@ services:
       DEBUG: "true"
       # Move uv cache to the writable /tmp tmpfs to prevent permission errors on restart
       UV_CACHE_DIR: /tmp/.uv-cache
+      BOOTSTRAP_DATABASE_URL: postgresql://postgres:postgres@db:5432/fluent
+      MIGRATIONS_DATABASE_URL: postgresql+asyncpg://ai_migrator:password@db:5432/fluent
+      DATABASE_URL: postgresql+asyncpg://ai_user:password@db:5432/fluent
     user: "1001:1001"
     read_only: true
     tmpfs:
