@@ -75,8 +75,8 @@ def upgrade() -> None:
         postgresql_where=sa.text("is_active = true"),
     )
 
-    # Belt-and-suspenders: the default privileges in db/init/01-init-db.sql
-    # already grant role_ai_data on tables created in `ai` by role_migrations,
+    # Belt-and-suspenders: the ALTER DEFAULT PRIVILEGES in scripts/bootstrap.py
+    # already grant ai_user on tables created in `ai` by role_migrations,
     # but issuing an explicit GRANT here makes the migration self-contained
     # and tolerant of environments without those default privileges.
     op.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ai.api_keys TO ai_user")

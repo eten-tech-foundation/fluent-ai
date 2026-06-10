@@ -14,7 +14,6 @@ from app.logging import configure_logging
 from app.logging.middleware import LoggingMiddleware
 from app.logging.utils import get_logger
 from app.middleware.request_id import RequestIDMiddleware
-from app.routers import projects
 from app.internal import admin
 from app.services.greek_room.repeated_words import RepeatedWordsService
 
@@ -90,7 +89,6 @@ register_exception_handlers(app)
 # --------------------------------------------------------------------------- #
 # Routers
 # --------------------------------------------------------------------------- #
-app.include_router(projects.router, tags=["projects"])
 app.include_router(admin.router)
 app.include_router(api_v1_router)
 

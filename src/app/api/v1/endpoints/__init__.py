@@ -11,5 +11,3 @@
 # Active endpoint modules:
 #   api_keys.py   — CRUD for API keys (admin writes, key-holder reads)
 #
-# Pending migration from app/routers/:
-#   projects.py   — list and retrieve projects (read-only, ai_user)

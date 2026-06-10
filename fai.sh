@@ -56,7 +56,7 @@ else
   DB_CONTAINER="fluent-ai-db"
   AI_CONTAINER="fluent-ai-ai"
   PGDATA_VOLUME="fluent-ai-pgdata"
-  DB_PORT="${DB_PORT:-5433}"
+  DB_PORT="${DB_PORT:-5432}"
   AI_PORT="${AI_PORT:-8200}"
   SKIP_DB=0
 fi
@@ -111,7 +111,6 @@ start_db_container() {
     -e POSTGRES_PASSWORD=postgres \
     -e POSTGRES_DB=fluent \
     -v $PGDATA_VOLUME:/var/lib/postgresql/data \
-    -v "$SCRIPT_DIR/db/init:/docker-entrypoint-initdb.d" \
     --health-cmd "pg_isready -U postgres -d fluent" \
     --health-interval 5s \
     --health-timeout 5s \
@@ -130,7 +129,9 @@ start_ai_container() {
   $RUNTIME build -t fluent-ai "$SCRIPT_DIR" -f Dockerfile.dev
 
   local -a env_flags=(
-    -e "DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/fluent"
+    -e "BOOTSTRAP_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/fluent"
+    -e "MIGRATIONS_DATABASE_URL=postgresql+asyncpg://ai_migrator:password@localhost:5432/fluent"
+    -e "DATABASE_URL=postgresql+asyncpg://ai_user:password@localhost:5432/fluent"
     -e "ENVIRONMENT=development"
     -e "DEBUG=true"
     -e "UV_CACHE_DIR=/app/.cache/uv"
@@ -517,6 +518,12 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     exec_ai env PYTHONPATH=/app/src uv run python -m app.db.seeds
     ;;
 
+  db:init)
+    echo_running "Running ai-schema setup (migrations + seeds)..."
+    exec_ai env PYTHONPATH=/app/src uv run python src/app/db/scripts/setup.py
+    echo_success "AI schema setup complete."
+    ;;
+
   db:psql)
     if [ "$RUNTIME_MODE" = "podman-pod" ]; then
       podman_db_psql
@@ -565,7 +572,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     fi
     ;;
 
-  setup)
+  init)
     if [[ ! -f .env ]]; then
       if [[ -f .env.example ]]; then
         cp .env.example .env
@@ -585,14 +592,14 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 Usage: ./fai.sh <command> [service] [args]
 
 Operating modes:
-  Standalone  ./fai.sh up          — own DB on 5433 + AI service (safe alongside platform)
+  Standalone  ./fai.sh up          — own DB on 5432 + AI service (run one service at a time)
   Service     ./fai.sh up ai       — AI only; point DATABASE_URL at an existing DB
   Ecosystem   ./fluent.sh up       — platform orchestrator owns the shared DB on 5432
 
 Services: db | ai | (omit for all)
 
 Container management:
-  up [service]           Start services (default: all — DB on 5433, then AI)
+  up [service]           Start services (default: all — DB on 5432, then AI)
   down [service]         Stop and remove services (default: all)
   restart [service]      Restart services (default: all)
   logs [service]         Tail logs (default: all)
@@ -609,11 +616,12 @@ Development (runs in AI container):
   run <command>          Run a uv command inside the AI container
 
 Database:
+  db:init                    Run migrations + seeds
   db:migrate                 Apply ai-schema Alembic migrations (upgrade head)
+  db:seed                    Run ai-schema seeds (idempotent)
+  db:history                 Show Alembic revision history
   db:revision "<msg>"        Generate a new --autogenerate revision
   db:downgrade [target]      Downgrade to target (default: -1)
-  db:history                 Show Alembic revision history
-  db:seed                    Run ai-schema seeds (idempotent)
   db:psql                    Open psql session
 
 Lifecycle:
@@ -623,9 +631,11 @@ Lifecycle:
   setup                  Create .env from .env.example if missing
 
 Environment variables:
-  DB_PORT                Standalone DB host port (default: 5433; use 5432 for platform DB)
+  DB_PORT                Standalone DB host port (default: 5432)
   AI_PORT                AI service host port (default: 8200)
-  DATABASE_URL           Override DB connection (set in .env to use platform DB)
+  BOOTSTRAP_DATABASE_URL Superuser URL the container uses to self-provision (bootstrap)
+  MIGRATIONS_DATABASE_URL  ai_migrator URL for Alembic migrations (DDL)
+  DATABASE_URL           ai_user runtime URL (least-privilege; set in .env to use platform DB)
 USAGE
     ;;
   esac
