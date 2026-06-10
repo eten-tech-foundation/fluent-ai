@@ -518,6 +518,12 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     exec_ai env PYTHONPATH=/app/src uv run python -m app.db.seeds
     ;;
 
+  db:init)
+    echo_running "Running ai-schema setup (migrations + seeds)..."
+    exec_ai env PYTHONPATH=/app/src uv run python src/app/db/scripts/setup.py
+    echo_success "AI schema setup complete."
+    ;;
+
   db:psql)
     if [ "$RUNTIME_MODE" = "podman-pod" ]; then
       podman_db_psql
@@ -566,7 +572,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     fi
     ;;
 
-  setup)
+  init)
     if [[ ! -f .env ]]; then
       if [[ -f .env.example ]]; then
         cp .env.example .env
@@ -610,11 +616,12 @@ Development (runs in AI container):
   run <command>          Run a uv command inside the AI container
 
 Database:
+  db:init                    Run migrations + seeds
   db:migrate                 Apply ai-schema Alembic migrations (upgrade head)
+  db:seed                    Run ai-schema seeds (idempotent)
+  db:history                 Show Alembic revision history
   db:revision "<msg>"        Generate a new --autogenerate revision
   db:downgrade [target]      Downgrade to target (default: -1)
-  db:history                 Show Alembic revision history
-  db:seed                    Run ai-schema seeds (idempotent)
   db:psql                    Open psql session
 
 Lifecycle:

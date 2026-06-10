@@ -481,6 +481,11 @@ switch ($Command) {
         Write-Running "Running ai-schema seeds..."
         Exec-Ai @("env", "PYTHONPATH=/app/src", "uv", "run", "python", "-m", "app.db.seeds")
     }
+    "db:init" {
+        Write-Running "Running ai-schema setup (migrations + seeds)..."
+        Exec-Ai @("env", "PYTHONPATH=/app/src", "uv", "run", "python", "src/app/db/scripts/setup.py")
+        Write-Success "AI schema setup complete."
+    }
     "db:psql" {
         if ($RuntimeMode -eq "podman-pod") {
             Podman-DbPsql
@@ -571,6 +576,7 @@ Development (runs in AI container):
   run <command>          Run a uv command inside the AI container
 
 Database:
+  db:init                    Run migrations + seeds
   db:migrate                 Apply ai-schema Alembic migrations (upgrade head)
   db:revision "<msg>"        Generate a new --autogenerate revision
   db:downgrade [target]      Downgrade to target (default: -1)
