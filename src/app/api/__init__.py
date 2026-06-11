@@ -5,7 +5,7 @@
 #
 # Each version directory contains:
 #   router.py      — aggregates all endpoint routers for that version
-#   endpoints/     — one module per domain (projects.py, api_keys.py, ...)
+#   endpoints/     — one module per domain (api_keys.py, ...)
 #
 # main.py imports only api/v1/router.py, staying ignorant of individual
 # endpoint files.

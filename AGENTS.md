@@ -11,7 +11,7 @@ There are three ways to run the service:
 
 | Mode | Command | DB port | When to use |
 |---|---|---|---|
-| **Standalone** | `./fai.sh up` | 5433 | Working on this service only |
+| **Standalone** | `./fai.sh up` | 5432 | Working on this service only |
 | **Service-only** | `./fai.sh up ai` | — (external) | Platform's DB already running |
 | **Ecosystem** | `./fluent.sh up` (in fluent-platform) | 5432 | Full integration work |
 
@@ -23,7 +23,7 @@ in service-only mode alongside `fluent.sh`.
 ```bash
 # Container workflow (preferred)
 ./fai.sh setup          # Create .env from .env.example
-./fai.sh up             # Start DB (port 5433) + AI service (port 8200)
+./fai.sh up             # Start DB (port 5432) + AI service (port 8200)
 ./fai.sh up db          # Start only the database
 ./fai.sh up ai          # Start only the AI service
 ./fai.sh down           # Stop and remove all services
@@ -132,11 +132,10 @@ tests/                        # Test suite (pytest)
 ├── test_logging.py           # Logging subsystem tests (safety, redaction, formatters)
 └── test_error_handlers.py    # Exception handler tests
 
-db/init/                      # SQL init scripts run on first DB start
 Dockerfile                    # Production build (non-root user, /app/logs dir)
 Dockerfile.dev                # Development build (source bind-mounted, /app/logs dir)
 compose.yaml                  # Docker Compose for standalone development
-docker-entrypoint.sh          # Container startup: init check → uv run fastapi dev
+docker-entrypoint.sh          # Container startup: bootstrap → migrate → seed → fastapi dev
 fai.sh / fai.ps1              # Helper scripts (see Operating Modes above)
 pyproject.toml                # Project metadata and dependencies
 uv.lock                       # Locked dependency manifest (commit this)
@@ -277,7 +276,7 @@ inside the pod/compose network). Override in `.env` to point at the platform DB 
 
 ```
 Pod: fluent-ai
-  fluent-ai-db   postgres:16-alpine   host:5433 → pod:5432
+  fluent-ai-db   postgres:16-alpine   host:5432 → pod:5432
   fluent-ai-ai   fluent-ai (local)    host:8200 → pod:8200
 Volume: fluent-ai-pgdata
 ```
@@ -285,7 +284,7 @@ Volume: fluent-ai-pgdata
 ### Docker Compose layout
 
 ```
-Service: db    postgres:16-alpine   host:5433 → container:5432
+Service: db    postgres:16-alpine   host:5432 → container:5432
 Service: ai    fluent-ai (built)    host:8200 → container:8200
 ```
 
@@ -313,20 +312,24 @@ skips already-applied revisions and every seed uses `ON CONFLICT DO NOTHING`. Se
 
 ## Database Ownership
 
-This service shares its PostgreSQL database with `fluent-platform`. Strict ownership
-rules govern who may change what:
+This service owns **only the `ai` schema** in the shared PostgreSQL database
+(`fluent`). It has **no access to any other schema** — it never reads `public`,
+`pgboss`, or `drizzle`, which belong to `fluent-api`.
 
-- **`db/init/`** contains only **pre-app bootstrap** SQL that postgres executes via
-  `docker-entrypoint-initdb.d` on first volume creation: role/user creation, schema
-  creation, grants, and external (`public`) schema dumps from `fluent-platform`. It
-  must never contain DDL or seed data for the `ai` schema.
 - **`ai` schema** (owned by this service) is managed by **Alembic** under
   `src/app/db/migrations/` and seeded by **Python** under `src/app/db/seeds/`.
-  Both run on every AI-container start via `docker-entrypoint.sh`.
-- **`public` / `pgboss` / `drizzle` schemas** are owned by `fluent-platform`. Alembic
-  is configured via `include_name` / `include_object` filters in `env.py` to refuse
-  to generate or apply any change outside `ai`. The `alembic_version` bookkeeping
-  table lives in the `ai` schema for the same reason.
+  The service provisions itself on container start: its bootstrap step creates its
+  own roles (`ai_user` runtime, `ai_migrator` for DDL) and the `ai` schema
+  idempotently, then runs migrations and seeds via `docker-entrypoint.sh`. The DB
+  starts superuser-only; nothing is mounted into `docker-entrypoint-initdb.d`.
+- **No cross-schema reads.** Alembic is configured via `include_name` /
+  `include_object` filters in `env.py` to refuse to generate or apply any change
+  outside `ai`. The `alembic_version` bookkeeping table lives in the `ai` schema
+  for the same reason.
+- **API data is fetched over HTTP** from fluent-api, never by reading API tables.
+  (The AI→API HTTP client and its base-URL config are future work — note that the
+  existing `FLUENT_AI_URL` is the reverse, API→AI, direction.) See
+  `docs/api-data-dependencies.md` for the data this service consumes.
 
 ### Adding a new `ai`-schema table
 
@@ -336,11 +339,6 @@ rules govern who may change what:
 4. `./fai.sh db:migrate` — apply locally.
 5. Add idempotent seeds under `src/app/db/seeds/<domain>.py` if needed, and register
    them in `app.db.seeds.runner.run_all_seeds`.
-
-### Reading an external (read-only) table
-
-Add the ORM model under `src/app/internal/<domain>.py` inheriting from `ExternalBase`.
-Do **not** import it from `app/db/base.py` — Alembic must never see it.
 
 ## Structured Logging
 
