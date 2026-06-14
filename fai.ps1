@@ -451,12 +451,12 @@ switch ($Command) {
 
     # ── Development commands ─────────────────────────────────────────────────
 
-    "test"          { Exec-Ai @("uv", "run", "pytest", "tests/", "-v") + $Args }
-    "lint"          { Exec-Ai @("uv", "run", "ruff", "check") + $Args }
-    "lint:fix"      { Exec-Ai @("uv", "run", "ruff", "check", "--fix") + $Args }
-    "format"        { Exec-Ai @("uv", "run", "ruff", "format") + $Args }
-    "format:check"  { Exec-Ai @("uv", "run", "ruff", "format", "--check") + $Args }
-    "typecheck"     { Exec-Ai @("uv", "run", "mypy", "src") + $Args }
+    "test"          { Exec-Ai (@("uv", "run", "pytest", "tests/", "-v") + $Args) }
+    "lint"          { Exec-Ai (@("uv", "run", "ruff", "check") + $Args) }
+    "lint:fix"      { Exec-Ai (@("uv", "run", "ruff", "check", "--fix") + $Args) }
+    "format"        { Exec-Ai (@("uv", "run", "ruff", "format") + $Args) }
+    "format:check"  { Exec-Ai (@("uv", "run", "ruff", "format", "--check") + $Args) }
+    "typecheck"     { Exec-Ai (@("uv", "run", "mypy", "src") + $Args) }
     "run"           { Exec-Ai (@("uv", "run") + $Args) }
 
     # ── Database commands ────────────────────────────────────────────────────
