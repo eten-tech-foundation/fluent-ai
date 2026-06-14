@@ -342,14 +342,18 @@ compose_status() {
 compose_shell() {
   local service="${1:-ai}"
   if [ "$service" = "db" ]; then
-    $COMPOSE_CMD exec db psql -U postgres -d fluent
+    docker exec -it "$DB_CONTAINER" psql -U postgres -d fluent
   else
-    $COMPOSE_CMD exec "$service" sh
+    docker exec -it "${CONTAINER_PREFIX}$service" sh
   fi
 }
 
 compose_exec_ai() {
-  $COMPOSE_CMD exec ai "$@"
+  if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$AI_CONTAINER"; then
+    echo_error "AI container ($AI_CONTAINER) is not running. Run './fai.sh up' first."
+    exit 1
+  fi
+  docker exec "$AI_CONTAINER" "$@"
 }
 
 compose_clean() {
@@ -378,7 +382,7 @@ compose_build() {
 }
 
 compose_db_psql() {
-  $COMPOSE_CMD exec db psql -U postgres -d fluent
+  docker exec -it "$DB_CONTAINER" psql -U postgres -d fluent
 }
 
 # ── Runtime dispatch helpers ───────────────────────────────────────────────────
