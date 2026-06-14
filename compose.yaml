@@ -1,5 +1,6 @@
 services:
   db:
+    container_name: fluent-ai-db
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: postgres
@@ -16,6 +17,7 @@ services:
       retries: 5
 
   ai:
+    container_name: fluent-ai-ai
     build:
       context: .
       dockerfile: Dockerfile.dev
