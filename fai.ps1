@@ -319,7 +319,11 @@ function Compose-Restart([string]$svc = "") {
 }
 
 function Compose-ExecAi([string[]]$cmdArgs) {
-    Invoke-Compose (@("exec", "ai") + $cmdArgs)
+    if (-not (Container-Running "fluent-ai-ai")) {
+        Write-Err "AI container is not running. Run '.\fai.ps1 up ai' first."
+        exit 1
+    }
+    & docker exec fluent-ai-ai @cmdArgs
 }
 
 function Compose-Clean([string]$svc = "all") {
@@ -346,7 +350,7 @@ function Compose-Build([string]$svc = "") {
 }
 
 function Compose-DbPsql {
-    Invoke-Compose @("exec", "db", "psql", "-U", "postgres", "-d", "fluent")
+    & docker exec -it fluent-ai-db psql -U postgres -d fluent
 }
 
 function Podman-Logs([string]$svc = "") {
@@ -438,21 +442,21 @@ switch ($Command) {
             }
         } else {
             if ($target -eq "db") {
-                Invoke-Compose @("exec", "db", "psql", "-U", "postgres", "-d", "fluent")
+                & docker exec -it fluent-ai-db psql -U postgres -d fluent
             } else {
-                Invoke-Compose @("exec", $target, "sh")
+                & docker exec -it "fluent-ai-$target" sh
             }
         }
     }
 
     # ── Development commands ─────────────────────────────────────────────────
 
-    "test"          { Exec-Ai @("uv", "run", "pytest", "tests/", "-v") + $Args }
-    "lint"          { Exec-Ai @("uv", "run", "ruff", "check") + $Args }
-    "lint:fix"      { Exec-Ai @("uv", "run", "ruff", "check", "--fix") + $Args }
-    "format"        { Exec-Ai @("uv", "run", "ruff", "format") + $Args }
-    "format:check"  { Exec-Ai @("uv", "run", "ruff", "format", "--check") + $Args }
-    "typecheck"     { Exec-Ai @("uv", "run", "mypy", "src") + $Args }
+    "test"          { Exec-Ai (@("uv", "run", "pytest", "tests/", "-v") + $Args) }
+    "lint"          { Exec-Ai (@("uv", "run", "ruff", "check") + $Args) }
+    "lint:fix"      { Exec-Ai (@("uv", "run", "ruff", "check", "--fix") + $Args) }
+    "format"        { Exec-Ai (@("uv", "run", "ruff", "format") + $Args) }
+    "format:check"  { Exec-Ai (@("uv", "run", "ruff", "format", "--check") + $Args) }
+    "typecheck"     { Exec-Ai (@("uv", "run", "mypy", "src") + $Args) }
     "run"           { Exec-Ai (@("uv", "run") + $Args) }
 
     # ── Database commands ────────────────────────────────────────────────────
