@@ -2,19 +2,18 @@
 suggestion_processor.py — Background worker for AI translation suggestions.
 
 This module runs as an asyncio task started in main.py's lifespan.
-It continuously polls the ai.ai_suggestion_jobs table for 'queued'
-jobs, processes them one at a time, and saves the results to
-ai.ai_suggestions.
+It continuously polls the ai.jobs table for 'queued' jobs, processes
+them one at a time, and pushes results back to fluent-api over HTTP.
 
 Job Processing Pipeline:
     1. Claim a queued job using SELECT FOR UPDATE SKIP LOCKED
        (prevents race conditions if multiple workers are running).
-    2. Fetch the source verses from bible_texts.
-    3. Retrieve context (Translation Memory) using hybrid FTS + proximity.
-    4. Look up the target language name from the languages table.
-    5. Call the TranslationService (Google Gemini) to generate translations.
-    6. Save each translated verse as an AiSuggestion record.
-    7. Mark the job as completed.
+    2. Fetch source verses and translation context from fluent-api
+       via POST /internal/suggestion-context.
+    3. Call the TranslationService (Google Gemini) to generate translations.
+    4. Push translated verses back to fluent-api via
+       POST /internal/ai-suggestions.
+    5. Mark the job as completed.
 
 Retry Logic:
     On failure, the job's retry_count is incremented. If it hasn't
@@ -29,15 +28,12 @@ Error Resilience:
 
 import asyncio
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal
 from app.logging.utils import get_logger
-from app.models.ai_suggestion import AiSuggestion, AiSuggestionJob
-from app.internal.platform_models import BibleText, Book, Language, ProjectUnit
-from app.internal.project import Project
-from app.services.context_retrieval import get_context_verses_for_prompt
+from app.models.job import Job
+import httpx
 from app.core.ai_clients.google_gemini import GoogleGeminiClient
 from app.services.translation_service import TranslationService
 from app.schemas.translations import TranslateRequest, VerseToTranslate
@@ -45,54 +41,19 @@ from app.config import get_settings
 from app.core.constants import (
     WORKER_POLL_INTERVAL_SECONDS,
     WORKER_MAX_CONSECUTIVE_FAILURES,
-    MAX_CONTEXT_VERSES_TOTAL,
     MAX_JOB_RETRIES,
 )
 
 logger = get_logger(__name__)
 
 
-async def _resolve_target_language_name(
-    db: AsyncSession, project_unit_id: int
-) -> str:
-    """
-    Look up the human-readable name of the project's target language.
-
-    Joins ProjectUnit → Project → Language to get lang_name.
-    Returns 'Unknown' if the lookup fails (should not happen with
-    valid data, but prevents a crash).
-    """
-    stmt = (
-        select(Language.lang_name)
-        .join(Project, Project.target_language == Language.id)
-        .join(ProjectUnit, ProjectUnit.project_id == Project.id)
-        .where(ProjectUnit.id == project_unit_id)
-        .limit(1)
-    )
-    result = await db.execute(stmt)
-    name = result.scalar_one_or_none()
-
-    if not name:
-        logger.error(
-            f"Could not resolve target language name for "
-            f"project_unit_id={project_unit_id}. Job will fail."
-        )
-        raise ValueError(f"Target language not found for project_unit_id={project_unit_id}")
-
-    return name
-
-
 async def process_job(
     db: AsyncSession,
-    job: AiSuggestionJob,
+    job: Job,
     translation_service: TranslationService,
 ):
     """
     Process a single AI suggestion job.
-
-    This function is called by the worker loop after claiming a job.
-    On success, suggestions are saved and the job is marked 'completed'.
-    On failure, the job is retried (up to MAX_JOB_RETRIES) or marked 'failed'.
     """
     try:
         # Mark as processing
@@ -100,98 +61,91 @@ async def process_job(
         job.error_message = None
         await db.commit()
 
-        # ------------------------------------------------------------------
-        # Step 1: Fetch the source verses to translate
-        # ------------------------------------------------------------------
-        verses_query = (
-            select(BibleText)
-            .join(Book, BibleText.book_id == Book.id)
-            .where(
-                BibleText.bible_id == job.bible_id,
-                Book.code == job.book_code.upper(),
-                BibleText.chapter_number == job.chapter_number,
-                BibleText.verse_number >= job.verse_start,
-                BibleText.verse_number <= job.verse_end,
-            )
-        )
-        verses_result = await db.execute(verses_query)
-        verses_to_translate = verses_result.scalars().all()
+        payload = job.payload
+        project_unit_id = payload.get("projectUnitId")
+        bible_id = payload.get("bibleId")
+        book_code = payload.get("bookCode")
+        chapter_number = payload.get("chapterNumber")
+        verse_start = payload.get("verseStart")
+        verse_end = payload.get("verseEnd")
 
-        if not verses_to_translate:
+        settings = translation_service.settings
+        api_base_url = settings.api_base_url.rstrip("/")
+        api_key = settings.api_service_key
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+        # 1. Fetch context and source verses from API
+        async with httpx.AsyncClient() as client:
+            context_resp = await client.post(
+                f"{api_base_url}/internal/suggestion-context",
+                headers=headers,
+                json={
+                    "projectUnitId": project_unit_id,
+                    "bibleId": bible_id,
+                    "bookCode": book_code,
+                    "chapterNumber": chapter_number,
+                    "verseStart": verse_start,
+                    "verseEnd": verse_end,
+                },
+                timeout=30.0,
+            )
+            context_resp.raise_for_status()
+            context_data = context_resp.json()
+
+        target_language_name = context_data.get("targetLanguageName", "Unknown")
+        context_verses = context_data.get("contextVerses", [])
+        source_verses = context_data.get("sourceVerses", [])
+
+        if not source_verses:
             job.status = "failed"
             job.error_message = (
-                f"No source verses found for {job.book_code} "
-                f"{job.chapter_number}:{job.verse_start}-{job.verse_end}"
+                f"No source verses found for {book_code} "
+                f"{chapter_number}:{verse_start}-{verse_end}"
             )
             await db.commit()
             return
 
-        # ------------------------------------------------------------------
-        # Step 2: Retrieve context (Translation Memory) for the prompt
-        # ------------------------------------------------------------------
-        context_verses = await get_context_verses_for_prompt(
-            db,
-            job.project_unit_id,
-            job.bible_id,
-            job.book_code,
-            job.chapter_number,
-            job.verse_start,
-            limit=MAX_CONTEXT_VERSES_TOTAL,
-        )
-
-        # ------------------------------------------------------------------
-        # Step 3: Resolve the target language name for the LLM prompt
-        # ------------------------------------------------------------------
-        target_language_name = await _resolve_target_language_name(
-            db, job.project_unit_id
-        )
-
-        # ------------------------------------------------------------------
-        # Step 4: Build the translation request and call the LLM
-        # ------------------------------------------------------------------
+        # 2. Build the translation request and call the LLM
         request = TranslateRequest(
             target_language_name=target_language_name,
-            context_verses=[cv.to_dict() for cv in context_verses],
+            context_verses=context_verses,
             verses_to_translate=[
                 VerseToTranslate(
-                    verse_id=f"{job.book_code}_{job.chapter_number}_{v.verse_number}",
-                    source_text=v.text,
+                    verse_id=f"{book_code}_{chapter_number}_{v['verse_number']}",
+                    source_text=v["text"],
                 )
-                for v in verses_to_translate
+                for v in source_verses
             ],
         )
 
         result = await translation_service.translate_verses(request)
 
-        # ------------------------------------------------------------------
-        # Step 5: Save each translated verse as an AiSuggestion
-        # ------------------------------------------------------------------
+        # 3. Save each translated verse back via API
+        items = []
         for item in result.translations:
-            # Parse verse number from the verse_id returned by the LLM
             verse_num = int(item.verse_id.split("_")[-1])
             bible_text = next(
-                (v for v in verses_to_translate if v.verse_number == verse_num),
+                (v for v in source_verses if v["verse_number"] == verse_num),
                 None,
             )
 
             if bible_text:
-                stmt = (
-                    insert(AiSuggestion)
-                    .values(
-                        bible_text_id=bible_text.id,
-                        project_unit_id=job.project_unit_id,
-                        suggested_text=item.target_text,
-                        model_info=translation_service.settings.google_ai_model,
-                    )
-                    .on_conflict_do_update(
-                        index_elements=["bible_text_id", "project_unit_id"],
-                        set_={
-                            "suggested_text": item.target_text,
-                            "model_info": translation_service.settings.google_ai_model,
-                        },
-                    )
+                items.append({
+                    "bibleTextId": bible_text["id"],
+                    "projectUnitId": project_unit_id,
+                    "suggestedText": item.target_text,
+                    "modelInfo": translation_service.settings.google_ai_model,
+                })
+
+        if items:
+            async with httpx.AsyncClient() as client:
+                save_resp = await client.post(
+                    f"{api_base_url}/internal/ai-suggestions",
+                    headers=headers,
+                    json={"items": items},
+                    timeout=30.0,
                 )
-                await db.execute(stmt)
+                save_resp.raise_for_status()
 
         job.status = "completed"
         await db.commit()
@@ -221,7 +175,7 @@ async def worker_loop():
     """
     Main background worker loop.
 
-    Runs indefinitely as an asyncio task. Polls ai.ai_suggestion_jobs
+    Runs indefinitely as an asyncio task. Polls ai.jobs
     for 'queued' jobs and processes them one at a time.
 
     Uses SELECT FOR UPDATE SKIP LOCKED to safely claim jobs,
@@ -245,9 +199,9 @@ async def worker_loop():
                 # This prevents two workers from picking the same job.
                 # ----------------------------------------------------------
                 query = (
-                    select(AiSuggestionJob)
-                    .where(AiSuggestionJob.status == "queued")
-                    .order_by(AiSuggestionJob.created_at.asc())
+                    select(Job)
+                    .where(Job.status == "queued")
+                    .order_by(Job.created_at.asc())
                     .limit(1)
                     .with_for_update(skip_locked=True)
                 )

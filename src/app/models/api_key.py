@@ -12,7 +12,6 @@ from sqlalchemy import (
     ARRAY,
     Boolean,
     CheckConstraint,
-    Column,
     DateTime,
     Index,
     Integer,
@@ -21,6 +20,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import OwnedBase
 
@@ -40,14 +40,14 @@ class ApiKey(OwnedBase):
         {"schema": "ai"},
     )
 
-    id: Column = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    key_hash: Column = Column(Text, nullable=False, unique=True)
-    name: Column = Column(String(255), nullable=False)
-    permissions: Column = Column(ARRAY(Text), nullable=False, server_default="{}")
-    is_active: Column = Column(Boolean, nullable=False, default=True)
-    owner_user_id: Column = Column(Integer, nullable=True)
-    owner_org_id: Column = Column(Integer, nullable=True)
-    created_at: Column = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    key_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    permissions: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default="{}")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    owner_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    owner_org_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=datetime.utcnow
     )
-    expires_at: Column = Column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

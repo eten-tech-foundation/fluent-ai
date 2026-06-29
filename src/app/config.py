@@ -127,6 +127,10 @@ class Settings(BaseSettings):
     google_ai_api_key: str | None = Field(default=None)
     google_ai_model: str = Field(default="gemini-2.5-flash-lite")
 
+    # Internal API Integration
+    api_base_url: str = Field(default="http://fluent-api:9999")
+    api_service_key: str = Field(default="dev-inbound-key-replace-me")
+
     @property
     def is_production(self) -> bool:
         """Check if running in production environment."""

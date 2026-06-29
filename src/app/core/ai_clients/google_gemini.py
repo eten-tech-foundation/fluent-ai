@@ -41,21 +41,18 @@ class GoogleGeminiClient:
             ExternalServiceException: If the SDK raises any error.
         """
         try:
-            kwargs = {
-                "model": self._model_name,
-                "contents": prompt,
-            }
-
+            config = None
             if system_instruction or response_mime_type:
-                config_args = {}
-                if system_instruction:
-                    config_args["system_instruction"] = system_instruction
-                if response_mime_type:
-                    config_args["response_mime_type"] = response_mime_type
+                config = types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    response_mime_type=response_mime_type,
+                )
 
-                kwargs["config"] = types.GenerateContentConfig(**config_args)
-
-            response = await self._client.aio.models.generate_content(**kwargs)
+            response = await self._client.aio.models.generate_content(
+                model=self._model_name,
+                contents=prompt,
+                config=config,
+            )
             return response.text or ""
         except Exception as exc:
             logger.error(f"Gemini API call failed: {exc}", exc_info=True)
