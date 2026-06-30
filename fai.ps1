@@ -57,9 +57,9 @@ function Write-Err([string]$msg)     { Write-Host ">>> $msg" -ForegroundColor Re
 # ── Podman pod configuration ──────────────────────────────────────────────────
 
 $PodName = "fluent-ai"
-# 5433 avoids conflict with the platform orchestrator's shared DB on 5432.
-# Use DB_PORT=5432 (or set DATABASE_URL in .env) to connect to the platform DB instead.
-$DbPort  = if ($env:DB_PORT)  { $env:DB_PORT }  else { "5433" }
+# Standalone uses 5432, same as the platform DB; don't run both at the same time.
+# Override with DB_PORT, or set DATABASE_URL in .env to point at another DB.
+$DbPort  = if ($env:DB_PORT)  { $env:DB_PORT }  else { "5432" }
 $AiPort  = if ($env:AI_PORT)  { $env:AI_PORT }  else { "8200" }
 
 # ── Podman helpers ────────────────────────────────────────────────────────────
@@ -135,7 +135,6 @@ function Start-DbContainer {
         -e POSTGRES_PASSWORD=postgres `
         -e POSTGRES_DB=fluent `
         -v fluent-ai-pgdata:/var/lib/postgresql/data `
-        -v "${ScriptDir}\db\init:/docker-entrypoint-initdb.d" `
         --health-cmd "pg_isready -U postgres -d fluent" `
         --health-interval 5s `
         --health-timeout 5s `
@@ -153,7 +152,9 @@ function Start-AiContainer {
     & $Runtime build -t fluent-ai $ScriptDir -f Dockerfile.dev
 
     $envFlags = @(
-        "-e", "DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/fluent",
+        "-e", "BOOTSTRAP_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/fluent",
+        "-e", "MIGRATIONS_DATABASE_URL=postgresql+asyncpg://ai_migrator:password@localhost:5432/fluent",
+        "-e", "DATABASE_URL=postgresql+asyncpg://ai_user:password@localhost:5432/fluent",
         "-e", "ENVIRONMENT=development",
         "-e", "DEBUG=true",
         "-e", "UV_CACHE_DIR=/app/.cache/uv"
@@ -318,7 +319,11 @@ function Compose-Restart([string]$svc = "") {
 }
 
 function Compose-ExecAi([string[]]$cmdArgs) {
-    Invoke-Compose (@("exec", "ai") + $cmdArgs)
+    if (-not (Container-Running "fluent-ai-ai")) {
+        Write-Err "AI container is not running. Run '.\fai.ps1 up ai' first."
+        exit 1
+    }
+    & docker exec fluent-ai-ai @cmdArgs
 }
 
 function Compose-Clean([string]$svc = "all") {
@@ -345,7 +350,7 @@ function Compose-Build([string]$svc = "") {
 }
 
 function Compose-DbPsql {
-    Invoke-Compose @("exec", "db", "psql", "-U", "postgres", "-d", "fluent")
+    & docker exec -it fluent-ai-db psql -U postgres -d fluent
 }
 
 function Podman-Logs([string]$svc = "") {
@@ -437,21 +442,21 @@ switch ($Command) {
             }
         } else {
             if ($target -eq "db") {
-                Invoke-Compose @("exec", "db", "psql", "-U", "postgres", "-d", "fluent")
+                & docker exec -it fluent-ai-db psql -U postgres -d fluent
             } else {
-                Invoke-Compose @("exec", $target, "sh")
+                & docker exec -it "fluent-ai-$target" sh
             }
         }
     }
 
     # ── Development commands ─────────────────────────────────────────────────
 
-    "test"          { Exec-Ai @("uv", "run", "pytest", "tests/", "-v") + $Args }
-    "lint"          { Exec-Ai @("uv", "run", "ruff", "check") + $Args }
-    "lint:fix"      { Exec-Ai @("uv", "run", "ruff", "check", "--fix") + $Args }
-    "format"        { Exec-Ai @("uv", "run", "ruff", "format") + $Args }
-    "format:check"  { Exec-Ai @("uv", "run", "ruff", "format", "--check") + $Args }
-    "typecheck"     { Exec-Ai @("uv", "run", "mypy", "src") + $Args }
+    "test"          { Exec-Ai (@("uv", "run", "pytest", "tests/", "-v") + $Args) }
+    "lint"          { Exec-Ai (@("uv", "run", "ruff", "check") + $Args) }
+    "lint:fix"      { Exec-Ai (@("uv", "run", "ruff", "check", "--fix") + $Args) }
+    "format"        { Exec-Ai (@("uv", "run", "ruff", "format") + $Args) }
+    "format:check"  { Exec-Ai (@("uv", "run", "ruff", "format", "--check") + $Args) }
+    "typecheck"     { Exec-Ai (@("uv", "run", "mypy", "src") + $Args) }
     "run"           { Exec-Ai (@("uv", "run") + $Args) }
 
     # ── Database commands ────────────────────────────────────────────────────
@@ -479,6 +484,11 @@ switch ($Command) {
     "db:seed" {
         Write-Running "Running ai-schema seeds..."
         Exec-Ai @("env", "PYTHONPATH=/app/src", "uv", "run", "python", "-m", "app.db.seeds")
+    }
+    "db:init" {
+        Write-Running "Running ai-schema setup (migrations + seeds)..."
+        Exec-Ai @("env", "PYTHONPATH=/app/src", "uv", "run", "python", "src/app/db/scripts/setup.py")
+        Write-Success "AI schema setup complete."
     }
     "db:psql" {
         if ($RuntimeMode -eq "podman-pod") {
@@ -546,14 +556,14 @@ switch ($Command) {
 Usage: .\fai.ps1 <command> [service] [args]
 
 Operating modes:
-  Standalone  .\fai.ps1 up         -- own DB on 5433 + AI service (safe alongside platform)
+  Standalone  .\fai.ps1 up         -- own DB on 5432 + AI service (run one service at a time)
   Service     .\fai.ps1 up ai      -- AI only; point DATABASE_URL at an existing DB
   Ecosystem   .\fluent.ps1 up      -- platform orchestrator owns the shared DB on 5432
 
 Services: db | ai | (omit for all)
 
 Container management:
-  up [service]           Start services (default: all -- DB on 5433, then AI)
+  up [service]           Start services (default: all -- DB on 5432, then AI)
   down [service]         Stop and remove services (default: all)
   restart [service]      Restart services (default: all)
   logs [service]         Tail logs (default: all)
@@ -570,6 +580,7 @@ Development (runs in AI container):
   run <command>          Run a uv command inside the AI container
 
 Database:
+  db:init                    Run migrations + seeds
   db:migrate                 Apply ai-schema Alembic migrations (upgrade head)
   db:revision "<msg>"        Generate a new --autogenerate revision
   db:downgrade [target]      Downgrade to target (default: -1)
@@ -584,9 +595,11 @@ Lifecycle:
   setup                  Create .env from .env.example if missing
 
 Environment variables:
-  DB_PORT                Standalone DB host port (default: 5433; use 5432 for platform DB)
+  DB_PORT                Standalone DB host port (default: 5432)
   AI_PORT                AI service host port (default: 8200)
-  DATABASE_URL           Override DB connection (set in .env to use platform DB)
+  BOOTSTRAP_DATABASE_URL Superuser URL the container uses to self-provision (bootstrap)
+  MIGRATIONS_DATABASE_URL  ai_migrator URL for Alembic migrations (DDL)
+  DATABASE_URL           ai_user runtime URL (least-privilege; set in .env to use platform DB)
 "@
     }
 }

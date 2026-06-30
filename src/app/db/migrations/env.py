@@ -1,16 +1,15 @@
 """Alembic environment for fluent-ai.
 
 Restrictions enforced here:
-  * target_metadata is OwnedBase.metadata only — ExternalBase models (public
-    schema, owned by fluent-platform) are intentionally not imported.
+  * target_metadata is OwnedBase.metadata only — there are no external models.
+    The AI service has no SQL access to other schemas; API data is fetched
+    over HTTP.
   * include_name filters out every schema except `ai`, so autogenerate
     cannot accidentally drop or alter objects this service does not own.
   * The alembic_version bookkeeping table lives in the `ai` schema so it is
     co-located with the objects it tracks and does not collide with any
     other service's migration history.
 """
-
-from __future__ import annotations
 
 import asyncio
 from logging.config import fileConfig
