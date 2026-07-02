@@ -2,14 +2,14 @@ from fastapi import APIRouter, Depends
 
 from app.config import Settings, get_settings
 from app.core.ai_clients.google_gemini import GoogleGeminiClient
+from app.dependencies import require_api_key
 from app.logging.utils import get_logger
 from app.schemas.translations import TranslateRequest, TranslationResult
-from app.security.auth import require_api_key
 from app.services.translation_service import TranslationService
 
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/translations", tags=["translations"])
+router = APIRouter()
 
 
 def get_translation_service(
@@ -30,7 +30,7 @@ async def translate_verses(
     service: TranslationService = Depends(get_translation_service),
 ) -> TranslationResult:
     """
-    Translates a list of target verses by dynamically leveraging 
+    Translates a list of target verses by dynamically leveraging
     provided context verses as translation memory.
     """
     logger.info("Received translation request")

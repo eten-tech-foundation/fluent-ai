@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 
+
 class SuggestionTriggerRequest(BaseModel):
     projectUnitId: int
     bibleId: int
@@ -7,3 +8,7 @@ class SuggestionTriggerRequest(BaseModel):
     chapterNumber: int
     verseStart: int
     verseEnd: int
+
+
+class SuggestionTriggerResponse(BaseModel):
+    message: str
