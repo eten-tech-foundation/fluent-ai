@@ -35,6 +35,7 @@ def test_production_settings_rejects_default_api_service_key():
 
 def test_development_settings_allows_default_secrets():
     settings = Settings(
+        _env_file=None,
         database_url="postgresql+asyncpg://user:pass@localhost:5432/test",
         environment="development",
     )
