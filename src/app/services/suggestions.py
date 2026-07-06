@@ -34,7 +34,7 @@ async def enqueue_suggestion_jobs(
 
     stmt = insert(Job).values(jobs_data)
     stmt = stmt.on_conflict_do_nothing(index_elements=["dedup_key"])
-    stmt = stmt.returning(Job.id)
+    stmt = stmt.returning(Job.id)  # type: ignore[assignment]
 
     result = await db.execute(stmt)
     inserted_count = len(result.scalars().all())

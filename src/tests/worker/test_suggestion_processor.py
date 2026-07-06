@@ -4,7 +4,7 @@ worker's job-processing and retry logic.
 """
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -52,11 +52,11 @@ async def test_process_job_requeues_on_transient_failure_without_raising(
         return _FakeResponse()
 
     orig_post = httpx.AsyncClient.post
-    httpx.AsyncClient.post = _fake_post
+    httpx.AsyncClient.post = _fake_post  # type: ignore[method-assign]
     try:
         await process_job(db_session, job, translation_service)
     finally:
-        httpx.AsyncClient.post = orig_post
+        httpx.AsyncClient.post = orig_post  # type: ignore[method-assign]
 
     await db_session.refresh(job)
     assert job.status == "queued"
@@ -94,11 +94,11 @@ async def test_process_job_marks_failed_after_max_retries(
         return _FakeResponse()
 
     orig_post = httpx.AsyncClient.post
-    httpx.AsyncClient.post = _fake_post
+    httpx.AsyncClient.post = _fake_post  # type: ignore[method-assign]
     try:
         await process_job(db_session, job, translation_service)
     finally:
-        httpx.AsyncClient.post = orig_post
+        httpx.AsyncClient.post = orig_post  # type: ignore[method-assign]
 
     await db_session.refresh(job)
     assert job.status == "failed"
@@ -128,7 +128,7 @@ async def test_reclaim_stale_jobs_requeues_orphaned_processing_job(db_session, m
     )
 
     # Backdate the stale job's updated_at past the timeout; leave fresh_job alone.
-    stale_cutoff = datetime.utcnow() - timedelta(
+    stale_cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
         minutes=STALE_PROCESSING_TIMEOUT_MINUTES + 1
     )
     await db_session.execute(

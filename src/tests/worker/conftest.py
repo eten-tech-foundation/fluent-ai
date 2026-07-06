@@ -42,7 +42,7 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
     # Clone the Job table into a fixture-local MetaData and patch the clone's
     # PostgreSQL-specific column types to SQLite-compatible equivalents.
     scratch_metadata = MetaData()
-    job_table = Job.__table__.to_metadata(scratch_metadata)
+    job_table = Job.__table__.to_metadata(scratch_metadata)  # type: ignore[attr-defined]
     for col in job_table.columns:
         if isinstance(col.type, JSONB):
             col.type = JSON()
