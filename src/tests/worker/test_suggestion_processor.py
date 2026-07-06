@@ -3,6 +3,7 @@ tests/worker/test_suggestion_processor.py — Tests for the AI suggestion
 worker's job-processing and retry logic.
 """
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -97,3 +98,16 @@ async def test_process_job_marks_failed_after_max_retries(
     await db_session.refresh(job)
     assert job.status == "failed"
     assert job.retry_count == MAX_JOB_RETRIES
+
+
+@pytest.mark.asyncio
+async def test_updated_at_changes_on_status_update(db_session, make_job):
+    job = await make_job(status="queued")
+    original_updated_at = job.updated_at
+
+    await asyncio.sleep(1.01)  # SQLite/Postgres now() has ~1s resolution here
+    job.status = "processing"
+    await db_session.commit()
+    await db_session.refresh(job)
+
+    assert job.updated_at > original_updated_at

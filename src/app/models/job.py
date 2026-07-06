@@ -7,6 +7,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -42,5 +43,5 @@ class Job(OwnedBase):
         DateTime, server_default=text("now()")
     )
     updated_at: Mapped[datetime | None] = mapped_column(
-        DateTime, server_default=text("now()")
+        DateTime, server_default=text("now()"), onupdate=text("now()")
     )
