@@ -50,6 +50,12 @@ from app.core.constants import (
 logger = get_logger(__name__)
 
 
+class NonRetryableJobError(Exception):
+    """Raised for failures that retrying cannot fix (e.g. a 4xx from
+    fluent-api, or a permanently malformed request payload). Jobs that
+    raise this go straight to 'failed' without consuming retry attempts."""
+
+
 async def process_job(
     db: AsyncSession,
     job: Job,
@@ -92,7 +98,15 @@ async def process_job(
                 },
                 timeout=30.0,
             )
-            context_resp.raise_for_status()
+            try:
+                context_resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                if 400 <= exc.response.status_code < 500:
+                    raise NonRetryableJobError(
+                        f"fluent-api rejected context request with "
+                        f"{exc.response.status_code}: {exc}"
+                    ) from exc
+                raise
             context_data = context_resp.json()
 
         target_language_name = context_data.get("targetLanguageName", "Unknown")
@@ -148,7 +162,15 @@ async def process_job(
                     json={"items": items},
                     timeout=30.0,
                 )
-                save_resp.raise_for_status()
+                try:
+                    save_resp.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    if 400 <= exc.response.status_code < 500:
+                        raise NonRetryableJobError(
+                            f"fluent-api rejected results push with "
+                            f"{exc.response.status_code}: {exc}"
+                        ) from exc
+                    raise
 
         job.status = "completed"
         await db.commit()
@@ -167,8 +189,9 @@ async def process_job(
         logger.error(f"Error processing job {job_id}: {e}")
         await db.rollback()
 
-        # Retry logic: re-queue if under the retry limit
-        if current_retry_count < MAX_JOB_RETRIES:
+        # Retry logic: re-queue if under the retry limit — unless this is a
+        # permanent failure that retrying cannot fix.
+        if not isinstance(e, NonRetryableJobError) and current_retry_count < MAX_JOB_RETRIES:
             new_retry_count = current_retry_count + 1
             job.retry_count = new_retry_count
             job.status = "queued"

@@ -7,6 +7,7 @@ import asyncio
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -141,3 +142,37 @@ async def test_reclaim_stale_jobs_requeues_orphaned_processing_job(db_session, m
     assert reclaimed_count == 1
     assert stale_job.status == "queued"
     assert fresh_job.status == "processing"
+
+
+@pytest.mark.asyncio
+async def test_process_job_fails_immediately_on_4xx_from_fluent_api(
+    db_session, make_job
+):
+    """A 404/400 from fluent-api's context endpoint can't be fixed by
+    retrying — the job should go straight to 'failed' on the first attempt."""
+    job = await make_job(retry_count=0)
+    translation_service = AsyncMock()
+    translation_service.settings.api_base_url = "http://fluent-api:9999"
+    translation_service.settings.api_service_key = "test-key"
+
+    class _FakeResponse:
+        status_code = 404
+
+        def raise_for_status(self):
+            raise httpx.HTTPStatusError(
+                "Not Found", request=httpx.Request("POST", "http://x"), response=self
+            )
+
+    async def _fake_post(self, *args, **kwargs):
+        return _FakeResponse()
+
+    orig_post = httpx.AsyncClient.post
+    httpx.AsyncClient.post = _fake_post
+    try:
+        await process_job(db_session, job, translation_service)
+    finally:
+        httpx.AsyncClient.post = orig_post
+
+    await db_session.refresh(job)
+    assert job.status == "failed"
+    assert job.retry_count == 0  # never incremented — failed on first attempt
