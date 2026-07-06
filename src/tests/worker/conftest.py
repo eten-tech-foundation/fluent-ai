@@ -7,7 +7,6 @@ commit/rollback/attribute-expiry behavior, instead of mocking the session.
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 
-import pytest
 import pytest_asyncio
 from sqlalchemy import JSON, MetaData, Text, VARCHAR, event
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID

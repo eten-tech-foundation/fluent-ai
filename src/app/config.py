@@ -80,11 +80,28 @@ class Settings(BaseSettings):
     show_stack_traces: bool = Field(default=False)
     log_level: str = Field(default="INFO")
 
+    _INSECURE_SECRET_KEY_DEFAULT = "your-secret-key-change-in-production"
+    _INSECURE_API_SERVICE_KEY_DEFAULT = "dev-inbound-key-replace-me"
+
     @model_validator(mode="after")
     def _enforce_production_safety(self) -> "Settings":
-        """Force show_stack_traces off in production, regardless of env var."""
+        """Force show_stack_traces off in production, and refuse to boot
+        with known placeholder secrets in production."""
         if self.environment == "production" and self.show_stack_traces:
             self.show_stack_traces = False
+
+        if self.environment == "production":
+            if self.secret_key == self._INSECURE_SECRET_KEY_DEFAULT:
+                raise ValueError(
+                    "secret_key is still set to its insecure development "
+                    "default — set a real SECRET_KEY in production."
+                )
+            if self.api_service_key == self._INSECURE_API_SERVICE_KEY_DEFAULT:
+                raise ValueError(
+                    "api_service_key is still set to its insecure development "
+                    "default — set a real API_SERVICE_KEY in production."
+                )
+
         return self
 
     log_output: str = Field(
