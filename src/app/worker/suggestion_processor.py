@@ -83,8 +83,8 @@ async def process_job(
         api_key = settings.api_service_key
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
-        # 1. Fetch context and source verses from API
         async with httpx.AsyncClient() as client:
+            # 1. Fetch context and source verses from API
             context_resp = await client.post(
                 f"{api_base_url}/ai-suggestions/internal/context",
                 headers=headers,
@@ -109,79 +109,78 @@ async def process_job(
                 raise
             context_data = context_resp.json()
 
-        target_language_name = context_data.get("targetLanguageName", "Unknown")
-        context_verses = context_data.get("contextVerses", [])
-        source_verses = context_data.get("sourceVerses", [])
+            target_language_name = context_data.get("targetLanguageName", "Unknown")
+            context_verses = context_data.get("contextVerses", [])
+            source_verses = context_data.get("sourceVerses", [])
 
-        if not source_verses:
-            job.status = "failed"
-            job.error_message = (
-                f"No source verses found for {book_code} "
-                f"{chapter_number}:{verse_start}-{verse_end}"
-            )
-            await db.commit()
-            return
-
-        # 2. Build the translation request and call the LLM
-        request = TranslateRequest(
-            target_language_name=target_language_name,
-            context_verses=context_verses,
-            verses_to_translate=[
-                VerseToTranslate(
-                    verse_id=f"{book_code}_{chapter_number}_{v['verse_number']}",
-                    source_text=v["text"],
+            if not source_verses:
+                job.status = "failed"
+                job.error_message = (
+                    f"No source verses found for {book_code} "
+                    f"{chapter_number}:{verse_start}-{verse_end}"
                 )
-                for v in source_verses
-            ],
-        )
+                await db.commit()
+                return
 
-        result = await translation_service.translate_verses(request)
+            # 2. Build the translation request and call the LLM
+            request = TranslateRequest(
+                target_language_name=target_language_name,
+                context_verses=context_verses,
+                verses_to_translate=[
+                    VerseToTranslate(
+                        verse_id=f"{book_code}_{chapter_number}_{v['verse_number']}",
+                        source_text=v["text"],
+                    )
+                    for v in source_verses
+                ],
+            )
 
-        # 3. Save each translated verse back via API. Guard each item
-        # individually — one hallucinated/malformed verse_id from the LLM
-        # should not fail the whole batch (see review finding #4).
-        items = []
-        parsed_verse_numbers = set()
-        for item in result.translations:
-            try:
-                verse_num = int(item.verse_id.split("_")[-1])
-            except (ValueError, AttributeError):
+            result = await translation_service.translate_verses(request)
+
+            # 3. Save each translated verse back via API. Guard each item
+            # individually — one hallucinated/malformed verse_id from the LLM
+            # should not fail the whole batch (see review finding #4).
+            items = []
+            parsed_verse_numbers = set()
+            for item in result.translations:
+                try:
+                    verse_num = int(item.verse_id.split("_")[-1])
+                except (ValueError, AttributeError):
+                    logger.warning(
+                        f"Job {job.id}: skipping unparseable verse_id "
+                        f"{item.verse_id!r} from LLM response."
+                    )
+                    continue
+
+                parsed_verse_numbers.add(verse_num)
+
+                bible_text = next(
+                    (v for v in source_verses if v["verse_number"] == verse_num),
+                    None,
+                )
+
+                if bible_text:
+                    items.append({
+                        "bibleTextId": bible_text["id"],
+                        "projectUnitId": project_unit_id,
+                        "suggestedText": item.target_text,
+                        "modelInfo": translation_service.settings.google_ai_model,
+                    })
+                else:
+                    logger.warning(
+                        f"Job {job.id}: LLM returned verse_id for verse "
+                        f"{verse_num} which was not in the requested range; dropping."
+                    )
+
+            requested_verse_numbers = {v["verse_number"] for v in source_verses}
+            missing = requested_verse_numbers - parsed_verse_numbers
+            if missing:
                 logger.warning(
-                    f"Job {job.id}: skipping unparseable verse_id "
-                    f"{item.verse_id!r} from LLM response."
-                )
-                continue
-
-            parsed_verse_numbers.add(verse_num)
-
-            bible_text = next(
-                (v for v in source_verses if v["verse_number"] == verse_num),
-                None,
-            )
-
-            if bible_text:
-                items.append({
-                    "bibleTextId": bible_text["id"],
-                    "projectUnitId": project_unit_id,
-                    "suggestedText": item.target_text,
-                    "modelInfo": translation_service.settings.google_ai_model,
-                })
-            else:
-                logger.warning(
-                    f"Job {job.id}: LLM returned verse_id for verse "
-                    f"{verse_num} which was not in the requested range; dropping."
+                    f"Job {job.id}: LLM omitted {len(missing)} of "
+                    f"{len(requested_verse_numbers)} requested verses: {sorted(missing)}"
                 )
 
-        requested_verse_numbers = {v["verse_number"] for v in source_verses}
-        missing = requested_verse_numbers - parsed_verse_numbers
-        if missing:
-            logger.warning(
-                f"Job {job.id}: LLM omitted {len(missing)} of "
-                f"{len(requested_verse_numbers)} requested verses: {sorted(missing)}"
-            )
-
-        if items:
-            async with httpx.AsyncClient() as client:
+            if items:
                 save_resp = await client.post(
                     f"{api_base_url}/ai-suggestions/internal/results",
                     headers=headers,

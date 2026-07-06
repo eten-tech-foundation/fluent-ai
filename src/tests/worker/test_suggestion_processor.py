@@ -299,3 +299,54 @@ async def test_process_job_skips_non_string_verse_id_instead_of_crashing(
     assert len(saved_items) == 1
     assert saved_items[0]["bibleTextId"] == 42
     assert saved_items[0]["suggestedText"] == "good translation"
+
+
+@pytest.mark.asyncio
+async def test_process_job_reuses_single_httpx_client(db_session, make_job):
+    """The worker should open exactly one httpx.AsyncClient per job, not
+    one per HTTP call."""
+    job = await make_job(retry_count=0)
+    translation_service = AsyncMock()
+    translation_service.settings.api_base_url = "http://fluent-api:9999"
+    translation_service.settings.api_service_key = "test-key"
+    translation_service.settings.google_ai_model = "gemini-test"
+    translation_service.translate_verses.return_value = SimpleNamespace(
+        translations=[SimpleNamespace(verse_id="MAT_1_1", target_text="hola")]
+    )
+
+    class _FakeContextResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "targetLanguageName": "Spanish",
+                "contextVerses": [],
+                "sourceVerses": [{"id": 42, "verse_number": 1, "text": "In the beginning"}],
+            }
+
+    class _FakeResultsResponse:
+        def raise_for_status(self):
+            pass
+
+    async def _fake_post(self, url, *args, **kwargs):
+        return _FakeContextResponse() if "context" in url else _FakeResultsResponse()
+
+    init_count = 0
+    orig_init = httpx.AsyncClient.__init__
+
+    def _counting_init(self, *args, **kwargs):
+        nonlocal init_count
+        init_count += 1
+        return orig_init(self, *args, **kwargs)
+
+    orig_post = httpx.AsyncClient.post
+    httpx.AsyncClient.post = _fake_post
+    httpx.AsyncClient.__init__ = _counting_init
+    try:
+        await process_job(db_session, job, translation_service)
+    finally:
+        httpx.AsyncClient.post = orig_post
+        httpx.AsyncClient.__init__ = orig_init
+
+    assert init_count == 1
