@@ -34,9 +34,27 @@ async def enqueue_suggestion_jobs(
 
     stmt = insert(Job).values(jobs_data)
     stmt = stmt.on_conflict_do_nothing(index_elements=["dedup_key"])
+    stmt = stmt.returning(Job.id)
 
-    await db.execute(stmt)
+    result = await db.execute(stmt)
+    inserted_count = len(result.scalars().all())
     await db.commit()
 
-    logger.info(f"Queued {len(jobs_data)} AI suggestion jobs")
-    return SuggestionTriggerResponse(message=f"Queued {len(jobs_data)} jobs")
+    requested_count = len(jobs_data)
+    skipped_count = requested_count - inserted_count
+
+    if skipped_count:
+        message = (
+            f"Queued {inserted_count} of {requested_count} jobs "
+            f"({skipped_count} duplicate skipped)"
+            if skipped_count == 1
+            else (
+                f"Queued {inserted_count} of {requested_count} jobs "
+                f"({skipped_count} duplicates skipped)"
+            )
+        )
+    else:
+        message = f"Queued {inserted_count} jobs"
+
+    logger.info(message)
+    return SuggestionTriggerResponse(message=message)
