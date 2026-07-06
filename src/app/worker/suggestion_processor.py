@@ -9,10 +9,10 @@ Job Processing Pipeline:
     1. Claim a queued job using SELECT FOR UPDATE SKIP LOCKED
        (prevents race conditions if multiple workers are running).
     2. Fetch source verses and translation context from fluent-api
-       via POST /internal/suggestion-context.
+       via POST /ai-suggestions/internal/context.
     3. Call the TranslationService (Google Gemini) to generate translations.
     4. Push translated verses back to fluent-api via
-       POST /internal/ai-suggestions.
+       POST /ai-suggestions/internal/results.
     5. Mark the job as completed.
 
 Retry Logic:
@@ -77,7 +77,7 @@ async def process_job(
         # 1. Fetch context and source verses from API
         async with httpx.AsyncClient() as client:
             context_resp = await client.post(
-                f"{api_base_url}/internal/suggestion-context",
+                f"{api_base_url}/ai-suggestions/internal/context",
                 headers=headers,
                 json={
                     "projectUnitId": project_unit_id,
@@ -140,7 +140,7 @@ async def process_job(
         if items:
             async with httpx.AsyncClient() as client:
                 save_resp = await client.post(
-                    f"{api_base_url}/internal/ai-suggestions",
+                    f"{api_base_url}/ai-suggestions/internal/results",
                     headers=headers,
                     json={"items": items},
                     timeout=30.0,
