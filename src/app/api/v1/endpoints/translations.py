@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from app.config import Settings, get_settings
-from app.core.ai_clients.google_gemini import GoogleGeminiClient
-from app.dependencies import require_api_key
+from app.dependencies import GoogleGeminiDep, require_api_key
 from app.logging.utils import get_logger
 from app.schemas.translations import TranslateRequest, TranslationResult
 from app.services.translation_service import TranslationService
@@ -13,9 +12,9 @@ router = APIRouter()
 
 
 def get_translation_service(
+    gemini_client: GoogleGeminiDep,
     settings: Settings = Depends(get_settings),
 ) -> TranslationService:
-    gemini_client = GoogleGeminiClient(settings)
     return TranslationService(settings, gemini_client)
 
 
