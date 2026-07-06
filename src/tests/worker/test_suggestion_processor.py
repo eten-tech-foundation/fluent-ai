@@ -4,12 +4,15 @@ worker's job-processing and retry logic.
 """
 
 import asyncio
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.worker.suggestion_processor import process_job
+from app.models.job import Job
+from app.worker.suggestion_processor import process_job, reclaim_stale_jobs
 
 
 @pytest.mark.asyncio
@@ -113,14 +116,6 @@ async def test_updated_at_changes_on_status_update(db_session, make_job):
     assert job.updated_at > original_updated_at
 
 
-from datetime import datetime, timedelta, timezone
-
-from sqlalchemy import update
-
-from app.models.job import Job
-from app.worker.suggestion_processor import reclaim_stale_jobs
-
-
 @pytest.mark.asyncio
 async def test_reclaim_stale_jobs_requeues_orphaned_processing_job(db_session, make_job):
     from app.core.constants import STALE_PROCESSING_TIMEOUT_MINUTES
@@ -131,7 +126,7 @@ async def test_reclaim_stale_jobs_requeues_orphaned_processing_job(db_session, m
     )
 
     # Backdate the stale job's updated_at past the timeout; leave fresh_job alone.
-    stale_cutoff = datetime.now(timezone.utc) - timedelta(
+    stale_cutoff = datetime.utcnow() - timedelta(
         minutes=STALE_PROCESSING_TIMEOUT_MINUTES + 1
     )
     await db_session.execute(

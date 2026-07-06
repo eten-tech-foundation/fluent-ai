@@ -27,7 +27,6 @@ MAX_JOB_RETRIES = 3
 # back to 'queued' by the next worker to poll.
 STALE_PROCESSING_TIMEOUT_MINUTES = 15
 
-
 # ---------------------------------------------------------------------------
 # Context Retrieval (Translation Memory)
 # ---------------------------------------------------------------------------

@@ -61,7 +61,7 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
     @event.listens_for(engine.sync_engine, "connect")
     def register_now(dbapi_conn, connection_record):
         dbapi_conn.create_function(
-            "now", 0, lambda: datetime.now(timezone.utc).isoformat()
+            "now", 0, lambda: datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         )
 
     async with engine.begin() as conn:

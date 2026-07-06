@@ -27,7 +27,7 @@ Error Resilience:
 """
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -193,7 +193,7 @@ async def reclaim_stale_jobs(db: AsyncSession) -> int:
     with no lock and no worker watching it. This sweep runs once per poll
     cycle and requeues anything whose updated_at is older than the timeout.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=STALE_PROCESSING_TIMEOUT_MINUTES)
+    cutoff = datetime.utcnow() - timedelta(minutes=STALE_PROCESSING_TIMEOUT_MINUTES)
     stmt = (
         update(Job)
         .where(Job.status == "processing", Job.updated_at < cutoff)
