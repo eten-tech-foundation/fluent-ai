@@ -152,21 +152,31 @@ async def process_job(
         logger.info(f"Job {job.id} completed successfully.")
 
     except Exception as e:
-        logger.error(f"Error processing job {job.id}: {e}")
+        # Capture everything we need from `job` BEFORE rollback(): rollback()
+        # expires all ORM attributes on this instance regardless of the
+        # session's expire_on_commit setting, and reading an expired
+        # attribute triggers an implicit lazy-load SELECT that raises
+        # MissingGreenlet/InvalidRequestError under asyncio. Writes (below)
+        # are safe post-rollback; reads are not.
+        job_id = job.id
+        current_retry_count = job.retry_count
+
+        logger.error(f"Error processing job {job_id}: {e}")
         await db.rollback()
 
         # Retry logic: re-queue if under the retry limit
-        if job.retry_count < MAX_JOB_RETRIES:
-            job.retry_count += 1
+        if current_retry_count < MAX_JOB_RETRIES:
+            new_retry_count = current_retry_count + 1
+            job.retry_count = new_retry_count
             job.status = "queued"
-            job.error_message = f"Retry {job.retry_count}/{MAX_JOB_RETRIES}: {str(e)[:500]}"
+            job.error_message = f"Retry {new_retry_count}/{MAX_JOB_RETRIES}: {str(e)[:500]}"
             logger.info(
-                f"Re-queuing job {job.id} (retry {job.retry_count}/{MAX_JOB_RETRIES})"
+                f"Re-queuing job {job_id} (retry {new_retry_count}/{MAX_JOB_RETRIES})"
             )
         else:
             job.status = "failed"
             job.error_message = f"Permanently failed after {MAX_JOB_RETRIES} retries: {str(e)[:500]}"
-            logger.error(f"Job {job.id} permanently failed after {MAX_JOB_RETRIES} retries.")
+            logger.error(f"Job {job_id} permanently failed after {MAX_JOB_RETRIES} retries.")
 
         await db.commit()
 
