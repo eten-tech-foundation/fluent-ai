@@ -1,9 +1,10 @@
 """
 constants.py — Centralized configuration constants for the AI suggestion system.
 
-All tunable values for the suggestion queue, background worker, and
-context retrieval are defined here. Import from this module instead
-of hardcoding values in business logic.
+All tunable values for the suggestion queue and background worker are
+defined here. Import from this module instead of hardcoding values in
+business logic. Context retrieval (translation memory selection) happens
+server-side in fluent-api, not in this service.
 """
 
 # ---------------------------------------------------------------------------
@@ -26,15 +27,3 @@ MAX_JOB_RETRIES = 3
 # orphaned (e.g. the worker that claimed it crashed mid-job) and reclaimed
 # back to 'queued' by the next worker to poll.
 STALE_PROCESSING_TIMEOUT_MINUTES = 15
-
-# ---------------------------------------------------------------------------
-# Context Retrieval (Translation Memory)
-# ---------------------------------------------------------------------------
-
-# Total number of context verse pairs (source + target) to include
-# in the Translation Memory prompt sent to the LLM.
-MAX_CONTEXT_VERSES_TOTAL = 10
-
-# Of the total, how many slots are reserved for FTS (lexical similarity)
-# matches. The remainder is filled by proximity/genre-based matches.
-MAX_CONTEXT_VERSES_FTS = 5
