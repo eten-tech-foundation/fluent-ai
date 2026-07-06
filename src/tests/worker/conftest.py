@@ -9,11 +9,10 @@ from datetime import datetime, timezone
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import JSON, Text, VARCHAR, event
+from sqlalchemy import JSON, MetaData, Text, VARCHAR, event
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.db.base import OwnedBase
 from app.models.job import Job
 
 
@@ -21,28 +20,41 @@ from app.models.job import Job
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
     """A real AsyncSession backed by in-memory SQLite.
 
-    schema_translate_map maps the "ai" schema (Postgres-only concept) to
-    no schema, since SQLite has no schema support. expire_on_commit=False
-    matches the production AsyncSessionLocal config (src/app/database.py).
+    expire_on_commit=False matches the production AsyncSessionLocal config
+    (src/app/database.py).
 
     PostgreSQL-specific types (JSONB, ARRAY, UUID) are patched to
-    SQLite-compatible equivalents.
+    SQLite-compatible equivalents. This is done on a clone of Job's table,
+    built via Table.to_metadata() into a fixture-local MetaData, so that we
+    never mutate Job.__table__ / the shared OwnedBase.metadata singleton
+    (which is imported by Alembic and the production app) — mutating those
+    in place would leak SQLite-specific types into the rest of the test
+    process.
+
+    The clone keeps the "ai" schema (matching Job.__table__) because the ORM
+    still emits INSERT/SELECT statements against Job.__table__, which is
+    schema-qualified; schema_translate_map below rewrites "ai" to no schema
+    for both the clone's CREATE TABLE and the ORM's DML at execution time,
+    since SQLite has no schema support.
     """
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     engine = engine.execution_options(schema_translate_map={"ai": None})
 
-    # Only create the Job table; patch its PostgreSQL-specific column types
-    # to SQLite-compatible equivalents.
-    job_table = OwnedBase.metadata.tables["ai.jobs"]
+    # Clone the Job table into a fixture-local MetaData and patch the clone's
+    # PostgreSQL-specific column types to SQLite-compatible equivalents.
+    scratch_metadata = MetaData()
+    job_table = Job.__table__.to_metadata(scratch_metadata)
     for col in job_table.columns:
-        type_name = type(col.type).__name__
-        if "JSONB" in type_name:
+        if isinstance(col.type, JSONB):
             col.type = JSON()
-        elif "ARRAY" in type_name:
-            # ARRAY becomes TEXT in SQLite
+        elif isinstance(col.type, ARRAY):
+            # ARRAY becomes TEXT in SQLite. Job has no ARRAY columns today;
+            # this branch is defensive for future models reusing this fixture.
             col.type = Text()
-        elif "UUID" in type_name:
-            # UUID becomes VARCHAR(36) in SQLite
+        elif isinstance(col.type, UUID):
+            # UUID becomes VARCHAR(36) in SQLite. Job has no UUID columns
+            # today; this branch is defensive for future models reusing
+            # this fixture.
             col.type = VARCHAR(36)
 
     # Register PostgreSQL's now() function for SQLite
