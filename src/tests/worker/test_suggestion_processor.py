@@ -17,7 +17,9 @@ async def test_process_job_requeues_on_transient_failure_without_raising(
 ):
     """A translation-service failure should roll back, increment retry_count,
     and re-queue the job — without raising MissingGreenlet/InvalidRequestError
-    from reading expired attributes after rollback()."""
+    from reading expired attributes after rollback(). Note: This test runs on
+    SQLite and verifies the resulting job state (status, retry_count, error_message),
+    not the MissingGreenlet failure mode, which requires Postgres/asyncpg semantics."""
     job = await make_job(retry_count=0)
 
     translation_service = AsyncMock()
