@@ -141,6 +141,7 @@ async def process_job(
         # individually — one hallucinated/malformed verse_id from the LLM
         # should not fail the whole batch (see review finding #4).
         items = []
+        parsed_verse_numbers = set()
         for item in result.translations:
             try:
                 verse_num = int(item.verse_id.split("_")[-1])
@@ -150,6 +151,8 @@ async def process_job(
                     f"{item.verse_id!r} from LLM response."
                 )
                 continue
+
+            parsed_verse_numbers.add(verse_num)
 
             bible_text = next(
                 (v for v in source_verses if v["verse_number"] == verse_num),
@@ -170,12 +173,7 @@ async def process_job(
                 )
 
         requested_verse_numbers = {v["verse_number"] for v in source_verses}
-        returned_verse_numbers = {
-            int(item.verse_id.split("_")[-1])
-            for item in result.translations
-            if item.verse_id.rsplit("_", 1)[-1].isdigit()
-        }
-        missing = requested_verse_numbers - returned_verse_numbers
+        missing = requested_verse_numbers - parsed_verse_numbers
         if missing:
             logger.warning(
                 f"Job {job.id}: LLM omitted {len(missing)} of "

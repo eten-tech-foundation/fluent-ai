@@ -237,3 +237,65 @@ async def test_process_job_skips_malformed_verse_id_instead_of_failing_job(
     assert len(saved_items) == 1
     assert saved_items[0]["bibleTextId"] == 42
     assert saved_items[0]["suggestedText"] == "good translation"
+
+
+@pytest.mark.asyncio
+async def test_process_job_skips_non_string_verse_id_instead_of_crashing(
+    db_session, make_job
+):
+    """A verse_id that is None (or otherwise non-string) from the LLM must
+    not crash the omission-summary block's guard clause — which previously
+    called .rsplit() on item.verse_id unconditionally and raised an
+    uncaught AttributeError, failing/requeuing the whole job."""
+    job = await make_job(retry_count=0)
+
+    translation_service = AsyncMock()
+    translation_service.settings.api_base_url = "http://fluent-api:9999"
+    translation_service.settings.api_service_key = "test-key"
+    translation_service.settings.google_ai_model = "gemini-test"
+    translation_service.translate_verses.return_value = SimpleNamespace(
+        translations=[
+            SimpleNamespace(verse_id=None, target_text="bad"),
+            SimpleNamespace(verse_id="MAT_1_1", target_text="good translation"),
+        ]
+    )
+
+    import httpx
+
+    posted_payloads = []
+
+    class _FakeContextResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "targetLanguageName": "Spanish",
+                "contextVerses": [],
+                "sourceVerses": [{"id": 42, "verse_number": 1, "text": "In the beginning"}],
+            }
+
+    class _FakeResultsResponse:
+        def raise_for_status(self):
+            pass
+
+    async def _fake_post(self, url, *args, **kwargs):
+        if "context" in url:
+            return _FakeContextResponse()
+        posted_payloads.append(kwargs.get("json"))
+        return _FakeResultsResponse()
+
+    orig_post = httpx.AsyncClient.post
+    httpx.AsyncClient.post = _fake_post
+    try:
+        await process_job(db_session, job, translation_service)
+    finally:
+        httpx.AsyncClient.post = orig_post
+
+    await db_session.refresh(job)
+    assert job.status == "completed"
+    assert len(posted_payloads) == 1
+    saved_items = posted_payloads[0]["items"]
+    assert len(saved_items) == 1
+    assert saved_items[0]["bibleTextId"] == 42
+    assert saved_items[0]["suggestedText"] == "good translation"
