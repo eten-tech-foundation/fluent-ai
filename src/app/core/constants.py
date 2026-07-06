@@ -22,6 +22,11 @@ WORKER_MAX_CONSECUTIVE_FAILURES = 5
 # permanently marked as 'failed'.
 MAX_JOB_RETRIES = 3
 
+# How long (in minutes) a job may sit in 'processing' before it's considered
+# orphaned (e.g. the worker that claimed it crashed mid-job) and reclaimed
+# back to 'queued' by the next worker to poll.
+STALE_PROCESSING_TIMEOUT_MINUTES = 15
+
 
 # ---------------------------------------------------------------------------
 # Context Retrieval (Translation Memory)

@@ -27,7 +27,9 @@ Error Resilience:
 """
 
 import asyncio
-from sqlalchemy import select
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal
@@ -42,6 +44,7 @@ from app.core.constants import (
     WORKER_POLL_INTERVAL_SECONDS,
     WORKER_MAX_CONSECUTIVE_FAILURES,
     MAX_JOB_RETRIES,
+    STALE_PROCESSING_TIMEOUT_MINUTES,
 )
 
 logger = get_logger(__name__)
@@ -181,6 +184,28 @@ async def process_job(
         await db.commit()
 
 
+async def reclaim_stale_jobs(db: AsyncSession) -> int:
+    """Requeue jobs stuck in 'processing' longer than the stale timeout.
+
+    Handles the case where a worker crashed or was killed mid-job: the row's
+    FOR UPDATE lock is released the moment status flips to 'processing'
+    (see process_job), so a crash after that point leaves the row orphaned
+    with no lock and no worker watching it. This sweep runs once per poll
+    cycle and requeues anything whose updated_at is older than the timeout.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=STALE_PROCESSING_TIMEOUT_MINUTES)
+    stmt = (
+        update(Job)
+        .where(Job.status == "processing", Job.updated_at < cutoff)
+        .values(status="queued")
+    )
+    result = await db.execute(stmt)
+    await db.commit()
+    if result.rowcount:
+        logger.warning(f"Reclaimed {result.rowcount} stale 'processing' job(s).")
+    return result.rowcount
+
+
 async def worker_loop():
     """
     Main background worker loop.
@@ -204,6 +229,8 @@ async def worker_loop():
     while True:
         try:
             async with AsyncSessionLocal() as db:
+                await reclaim_stale_jobs(db)
+
                 # ----------------------------------------------------------
                 # H1 Fix: Use FOR UPDATE SKIP LOCKED to claim jobs safely.
                 # This prevents two workers from picking the same job.

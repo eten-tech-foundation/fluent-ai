@@ -111,3 +111,38 @@ async def test_updated_at_changes_on_status_update(db_session, make_job):
     await db_session.refresh(job)
 
     assert job.updated_at > original_updated_at
+
+
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import update
+
+from app.models.job import Job
+from app.worker.suggestion_processor import reclaim_stale_jobs
+
+
+@pytest.mark.asyncio
+async def test_reclaim_stale_jobs_requeues_orphaned_processing_job(db_session, make_job):
+    from app.core.constants import STALE_PROCESSING_TIMEOUT_MINUTES
+
+    stale_job = await make_job(status="processing")
+    fresh_job = await make_job(
+        status="processing", dedup_key="ai_suggestion:2:1:MAT:1:1:1"
+    )
+
+    # Backdate the stale job's updated_at past the timeout; leave fresh_job alone.
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(
+        minutes=STALE_PROCESSING_TIMEOUT_MINUTES + 1
+    )
+    await db_session.execute(
+        update(Job).where(Job.id == stale_job.id).values(updated_at=stale_cutoff)
+    )
+    await db_session.commit()
+
+    reclaimed_count = await reclaim_stale_jobs(db_session)
+
+    await db_session.refresh(stale_job)
+    await db_session.refresh(fresh_job)
+    assert reclaimed_count == 1
+    assert stale_job.status == "queued"
+    assert fresh_job.status == "processing"
