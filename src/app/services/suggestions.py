@@ -21,10 +21,10 @@ async def enqueue_suggestion_jobs(
     jobs_data = [
         {
             "task_type": "ai_suggestion",
-            "payload": req.model_dump(),
+            "payload": req.model_dump(by_alias=True),
             "dedup_key": (
-                f"ai_suggestion:{req.projectUnitId}:{req.bibleId}:{req.bookCode}:"
-                f"{req.chapterNumber}:{req.verseStart}:{req.verseEnd}"
+                f"ai_suggestion:{req.project_unit_id}:{req.bible_id}:{req.book_code}:"
+                f"{req.chapter_number}:{req.verse_start}:{req.verse_end}"
             ),
             "status": "queued",
             "retry_count": 0,

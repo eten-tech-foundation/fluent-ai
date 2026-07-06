@@ -71,3 +71,34 @@ async def test_enqueue_reports_duplicates_skipped(db_session):
     await enqueue_suggestion_jobs(db_session, [_request(1)])
     response = await enqueue_suggestion_jobs(db_session, [_request(1), _request(2)])
     assert response.message == "Queued 1 of 2 jobs (1 duplicate skipped)"
+
+
+def test_suggestion_trigger_request_accepts_camelcase_and_exposes_snake_case():
+    from app.schemas.suggestions import SuggestionTriggerRequest
+
+    req = SuggestionTriggerRequest.model_validate(
+        {
+            "projectUnitId": 1,
+            "bibleId": 2,
+            "bookCode": "MAT",
+            "chapterNumber": 3,
+            "verseStart": 4,
+            "verseEnd": 5,
+        }
+    )
+    assert req.project_unit_id == 1
+    assert req.bible_id == 2
+    assert req.book_code == "MAT"
+    assert req.chapter_number == 3
+    assert req.verse_start == 4
+    assert req.verse_end == 5
+
+    dumped = req.model_dump(by_alias=True)
+    assert dumped == {
+        "projectUnitId": 1,
+        "bibleId": 2,
+        "bookCode": "MAT",
+        "chapterNumber": 3,
+        "verseStart": 4,
+        "verseEnd": 5,
+    }
