@@ -65,18 +65,9 @@ class TranslationService:
                 prompt=full_prompt,
                 system_instruction=system_instruction,
                 response_mime_type="application/json",
+                response_schema=TranslationResult,
             )
-            
-            # Clean up potential markdown formatting if the model still outputs it despite response_mime_type
-            clean_text = response_text.strip()
-            if clean_text.startswith("```json"):
-                clean_text = clean_text[7:]
-            if clean_text.startswith("```"):
-                clean_text = clean_text[3:]
-            if clean_text.endswith("```"):
-                clean_text = clean_text[:-3]
-                
-            parsed_json = json.loads(clean_text)
+            parsed_json = json.loads(response_text)
             return TranslationResult.model_validate(parsed_json)
 
         except Exception as e:

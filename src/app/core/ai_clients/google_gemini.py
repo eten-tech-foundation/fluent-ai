@@ -34,18 +34,27 @@ class GoogleGeminiClient:
         prompt: str,
         system_instruction: str | None = None,
         response_mime_type: str | None = None,
+        response_schema: type | None = None,
     ) -> str:
         """Send a prompt to Gemini and return the text response.
+
+        Args:
+            response_schema: Optional Pydantic model class describing the
+                expected JSON shape. When set alongside
+                response_mime_type="application/json", the SDK validates
+                and structures the model's output server-side, removing
+                the need for manual fence-stripping/json.loads downstream.
 
         Raises:
             ExternalServiceException: If the SDK raises any error.
         """
         try:
             config = None
-            if system_instruction or response_mime_type:
+            if system_instruction or response_mime_type or response_schema:
                 config = types.GenerateContentConfig(
                     system_instruction=system_instruction,
                     response_mime_type=response_mime_type,
+                    response_schema=response_schema,
                 )
 
             response = await self._client.aio.models.generate_content(
