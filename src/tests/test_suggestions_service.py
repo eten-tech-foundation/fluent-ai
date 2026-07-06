@@ -10,7 +10,6 @@ from sqlalchemy import JSON, MetaData, Text, VARCHAR, event
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.db.base import OwnedBase
 from app.schemas.suggestions import SuggestionTriggerRequest
 from app.services.suggestions import enqueue_suggestion_jobs
 
