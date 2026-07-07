@@ -27,3 +27,8 @@ MAX_JOB_RETRIES = 3
 # orphaned (e.g. the worker that claimed it crashed mid-job) and reclaimed
 # back to 'queued' by the next worker to poll.
 STALE_PROCESSING_TIMEOUT_MINUTES = 15
+
+# Maximum number of SuggestionTriggerRequest items accepted in a single
+# POST /suggestions call. Prevents an unbounded batch from enqueueing an
+# arbitrarily large number of jobs in one request.
+MAX_SUGGESTION_BATCH_SIZE = 100
