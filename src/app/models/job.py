@@ -1,6 +1,8 @@
 from datetime import datetime
+from typing import Literal
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     Index,
     Integer,
@@ -24,6 +26,10 @@ class Job(OwnedBase):
     __table_args__ = (
         Index("idx_jobs_status_created", "status", "created_at"),
         UniqueConstraint("dedup_key", name="uq_jobs_dedup_key"),
+        CheckConstraint(
+            "status IN ('queued', 'processing', 'completed', 'failed')",
+            name="ck_jobs_status_valid",
+        ),
         {"schema": "ai"},
     )
 
@@ -31,7 +37,7 @@ class Job(OwnedBase):
     task_type: Mapped[str] = mapped_column(String(50), nullable=False)
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
     dedup_key: Mapped[str] = mapped_column(String(255), nullable=False)
-    status: Mapped[str] = mapped_column(
+    status: Mapped[Literal["queued", "processing", "completed", "failed"]] = mapped_column(
         String(20), nullable=False, server_default=text("'queued'")
     )
     retry_count: Mapped[int] = mapped_column(

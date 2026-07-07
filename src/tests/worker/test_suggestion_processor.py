@@ -350,3 +350,10 @@ async def test_process_job_reuses_single_httpx_client(db_session, make_job):
         httpx.AsyncClient.__init__ = orig_init
 
     assert init_count == 1
+
+
+@pytest.mark.asyncio
+async def test_job_status_accepts_all_four_valid_values(db_session, make_job):
+    for status in ("queued", "processing", "completed", "failed"):
+        job = await make_job(status=status, dedup_key=f"ai_suggestion:test:{status}")
+        assert job.status == status
