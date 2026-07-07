@@ -31,11 +31,12 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+import httpx
 
 from app.database import AsyncSessionLocal
 from app.logging.utils import get_logger
 from app.models.job import Job
-import httpx
+
 from app.core.ai_clients.google_gemini import GoogleGeminiClient
 from app.services.translation_service import TranslationService
 from app.schemas.translations import TranslateRequest, VerseToTranslate

@@ -35,7 +35,7 @@ async def db_session():
 
     # Register PostgreSQL's now() function for SQLite
     @event.listens_for(engine.sync_engine, "connect")
-    def register_now(dbapi_conn, connection_record):
+    def register_now(dbapi_conn, connection_record) -> None:
         dbapi_conn.create_function(
             "now", 0, lambda: datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         )

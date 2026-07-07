@@ -7,7 +7,7 @@ import pytest
 from app.config import Settings
 
 
-def _base_kwargs(**overrides):
+def _base_kwargs(**overrides: str) -> dict[str, str]:
     kwargs = {
         "database_url": "postgresql+asyncpg://user:pass@localhost:5432/test",
         "environment": "production",
