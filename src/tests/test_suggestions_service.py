@@ -102,3 +102,37 @@ def test_suggestion_trigger_request_accepts_camelcase_and_exposes_snake_case():
         "verseStart": 4,
         "verseEnd": 5,
     }
+
+
+def test_suggestion_trigger_request_rejects_inverted_verse_range():
+    from pydantic import ValidationError
+
+    from app.schemas.suggestions import SuggestionTriggerRequest
+
+    with pytest.raises(ValidationError):
+        SuggestionTriggerRequest.model_validate(
+            {
+                "projectUnitId": 1,
+                "bibleId": 1,
+                "bookCode": "MAT",
+                "chapterNumber": 1,
+                "verseStart": 5,
+                "verseEnd": 1,
+            }
+        )
+
+
+def test_suggestion_trigger_request_accepts_equal_verse_start_and_end():
+    from app.schemas.suggestions import SuggestionTriggerRequest
+
+    req = SuggestionTriggerRequest.model_validate(
+        {
+            "projectUnitId": 1,
+            "bibleId": 1,
+            "bookCode": "MAT",
+            "chapterNumber": 1,
+            "verseStart": 5,
+            "verseEnd": 5,
+        }
+    )
+    assert req.verse_start == req.verse_end == 5
