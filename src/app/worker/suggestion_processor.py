@@ -181,22 +181,32 @@ async def process_job(
                     f"{len(requested_verse_numbers)} requested verses: {sorted(missing)}"
                 )
 
-            if items:
-                save_resp = await client.post(
-                    f"{api_base_url}/ai-suggestions/internal/results",
-                    headers=headers,
-                    json={"items": items},
-                    timeout=30.0,
+            if not items:
+                job.status = "failed"
+                job.error_message = (
+                    f"No valid translations to save for {book_code} "
+                    f"{chapter_number}:{verse_start}-{verse_end} — all "
+                    f"{len(result.translations)} LLM-returned item(s) were "
+                    f"malformed or out of the requested range."
                 )
-                try:
-                    save_resp.raise_for_status()
-                except httpx.HTTPStatusError as exc:
-                    if 400 <= exc.response.status_code < 500:
-                        raise NonRetryableJobError(
-                            f"fluent-api rejected results push with "
-                            f"{exc.response.status_code}: {exc}"
-                        ) from exc
-                    raise
+                await db.commit()
+                return
+
+            save_resp = await client.post(
+                f"{api_base_url}/ai-suggestions/internal/results",
+                headers=headers,
+                json={"items": items},
+                timeout=30.0,
+            )
+            try:
+                save_resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                if 400 <= exc.response.status_code < 500:
+                    raise NonRetryableJobError(
+                        f"fluent-api rejected results push with "
+                        f"{exc.response.status_code}: {exc}"
+                    ) from exc
+                raise
 
         job.status = "completed"
         await db.commit()

@@ -357,3 +357,47 @@ async def test_job_status_accepts_all_four_valid_values(db_session, make_job):
     for status in ("queued", "processing", "completed", "failed"):
         job = await make_job(status=status, dedup_key=f"ai_suggestion:test:{status}")
         assert job.status == status
+
+
+@pytest.mark.asyncio
+async def test_process_job_fails_when_all_items_are_dropped(db_session, make_job):
+    """If every item in the LLM response is malformed or out of range, the
+    job should be marked 'failed' (nothing was actually saved), not silently
+    'completed' — mirroring the existing 'no source verses' failure path."""
+    job = await make_job(retry_count=0)
+
+    translation_service = AsyncMock()
+    translation_service.settings.api_base_url = "http://fluent-api:9999"
+    translation_service.settings.api_service_key = "test-key"
+    translation_service.settings.google_ai_model = "gemini-test"
+    translation_service.translate_verses.return_value = SimpleNamespace(
+        translations=[
+            SimpleNamespace(verse_id="not-a-valid-id", target_text="bad"),
+            SimpleNamespace(verse_id="MAT_1_999", target_text="out of range"),
+        ]
+    )
+
+    class _FakeContextResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "targetLanguageName": "Spanish",
+                "contextVerses": [],
+                "sourceVerses": [{"id": 42, "verse_number": 1, "text": "In the beginning"}],
+            }
+
+    async def _fake_post(self, url, *args, **kwargs):
+        return _FakeContextResponse()
+
+    orig_post = httpx.AsyncClient.post
+    httpx.AsyncClient.post = _fake_post
+    try:
+        await process_job(db_session, job, translation_service)
+    finally:
+        httpx.AsyncClient.post = orig_post
+
+    await db_session.refresh(job)
+    assert job.status == "failed"
+    assert job.error_message is not None
