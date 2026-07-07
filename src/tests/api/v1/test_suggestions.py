@@ -71,4 +71,4 @@ def test_trigger_suggestions_accepts_batch_at_max_size(authed_client, monkeypatc
     )
     at_max = [_request(i) for i in range(MAX_SUGGESTION_BATCH_SIZE)]
     response = authed_client.post("/suggestions", json=at_max)
-    assert response.status_code != 400
+    assert response.status_code == 200
