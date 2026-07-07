@@ -136,3 +136,37 @@ def test_suggestion_trigger_request_accepts_equal_verse_start_and_end():
         }
     )
     assert req.verse_start == req.verse_end == 5
+
+
+def test_suggestion_trigger_request_rejects_book_code_with_separator_char():
+    from pydantic import ValidationError
+
+    from app.schemas.suggestions import SuggestionTriggerRequest
+
+    with pytest.raises(ValidationError):
+        SuggestionTriggerRequest.model_validate(
+            {
+                "projectUnitId": 1,
+                "bibleId": 1,
+                "bookCode": "MAT:1",
+                "chapterNumber": 1,
+                "verseStart": 1,
+                "verseEnd": 1,
+            }
+        )
+
+
+def test_suggestion_trigger_request_accepts_normal_book_code():
+    from app.schemas.suggestions import SuggestionTriggerRequest
+
+    req = SuggestionTriggerRequest.model_validate(
+        {
+            "projectUnitId": 1,
+            "bibleId": 1,
+            "bookCode": "MAT",
+            "chapterNumber": 1,
+            "verseStart": 1,
+            "verseEnd": 1,
+        }
+    )
+    assert req.book_code == "MAT"

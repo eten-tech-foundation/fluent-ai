@@ -6,7 +6,7 @@ class SuggestionTriggerRequest(BaseModel):
 
     project_unit_id: int = Field(alias="projectUnitId")
     bible_id: int = Field(alias="bibleId")
-    book_code: str = Field(alias="bookCode")
+    book_code: str = Field(alias="bookCode", pattern=r"^[A-Za-z0-9]+$")
     chapter_number: int = Field(alias="chapterNumber")
     verse_start: int = Field(alias="verseStart")
     verse_end: int = Field(alias="verseEnd")
