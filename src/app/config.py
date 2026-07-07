@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     show_stack_traces: bool = Field(default=False)
     log_level: str = Field(default="INFO")
 
-    _INSECURE_SECRET_KEY_DEFAULT = "your-secret-key-change-in-production"
+    _INSECURE_SECRET_KEY_DEFAULT = "dev-secret-key-not-for-production"
     _INSECURE_API_SERVICE_KEY_DEFAULT = "dev-inbound-key-replace-me"
 
     @model_validator(mode="after")
@@ -145,8 +145,12 @@ class Settings(BaseSettings):
     google_ai_model: str = Field(default="gemini-2.5-flash-lite")
 
     # Internal API Integration
-    api_base_url: str = Field(default="http://fluent-api:9999")
-    api_service_key: str = Field(default="dev-inbound-key-replace-me")
+    api_base_url: str = Field(
+        description="Base URL of the fluent-api service. Set in .env — never hardcode here."
+    )
+    api_service_key: str = Field(
+        description="Key used to authenticate outgoing requests to fluent-api. Set in .env — never hardcode here."
+    )
 
     @property
     def is_production(self) -> bool:
