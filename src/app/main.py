@@ -2,6 +2,7 @@
 main.py — FastAPI application factory for the Fluent AI service.
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -14,8 +15,9 @@ from app.logging import configure_logging
 from app.logging.middleware import LoggingMiddleware
 from app.logging.utils import get_logger
 from app.middleware.request_id import RequestIDMiddleware
-from app.internal import admin
+from app.routers import admin
 from app.services.greek_room.repeated_words import RepeatedWordsService
+from app.worker.suggestion_processor import worker_loop
 
 
 settings = get_settings()
@@ -45,7 +47,23 @@ async def lifespan(app: FastAPI):
         log_output=settings.log_output,
         log_file=settings.log_file_path,
     )
+
+    worker_task: asyncio.Task | None = None
+    if settings.enable_suggestion_worker:
+        worker_task = asyncio.create_task(worker_loop())
+        logger.info("AI suggestion worker started")
+    else:
+        logger.info("AI suggestion worker disabled")
+
     yield
+
+    if worker_task:
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
+
     logger.info("Application shutting down")
 
 

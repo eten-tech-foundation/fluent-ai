@@ -45,8 +45,7 @@ async def require_api_key(
     db: AsyncSession = Depends(get_db),
 ) -> ApiKey:
     """
-    Validate the API key and attach it to request.state.api_key.
-    Raises 401 for missing/invalid keys, 403 for inactive or expired keys.
+    Validates the API key and attaches the record to the request state.
     """
     record = await get_api_key_by_hash(db, raw_key)
 
