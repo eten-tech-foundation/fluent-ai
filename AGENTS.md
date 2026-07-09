@@ -100,7 +100,10 @@ src/app/                      # All Python source code
 ├── config.py                 # Pydantic BaseSettings + cached getter
 ├── database.py               # Database connection and session management
 ├── dependencies.py           # Shared FastAPI dependency functions
-├── api/                      # API versioned routes
+├── api/                      # Versioned API routes
+│   └── v1/
+│       ├── router.py         # Aggregates all v1 endpoint routers
+│       └── endpoints/        # One module per domain (api_keys, greek_room, suggestions, translations)
 ├── core/                     # Core configuration and utilities
 ├── crud/                     # Database CRUD operations
 ├── errors/                   # Error handling subsystem
@@ -109,7 +112,6 @@ src/app/                      # All Python source code
 │   ├── handlers.py           # Global exception handlers (registered in main.py)
 │   ├── logging.py            # log_exception helper (delegates to app.logging)
 │   └── schemas.py            # ErrorResponse Pydantic model
-├── internal/                 # Internal/admin routes
 ├── logging/                  # Structured logging (stdlib only, no 3rd-party deps)
 │   ├── __init__.py           # Public API: configure_logging, get_logger, etc.
 │   ├── config.py             # One-time root logger setup (dev vs prod)
@@ -122,7 +124,7 @@ src/app/                      # All Python source code
 ├── middleware/
 │   └── request_id.py         # RequestIDMiddleware (outermost)
 ├── models/                   # SQLAlchemy ORM models
-├── routers/                  # Public route handlers, one file per domain entity
+├── routers/                  # Unversioned routers outside the v1 API surface (currently: admin.py)
 ├── schemas/                  # Pydantic request/response schemas
 ├── security/                 # Security and authentication utilities
 └── services/                 # Business logic layer
@@ -175,7 +177,7 @@ alembic.ini                   # Alembic configuration for database migrations
 - **Variables:** snake_case (`fake_items_db`, `item_id`).
 - **Private functions:** leading underscore (`_enforce_production_safety`).
 - **Router variable:** always named `router` in each router module.
-- **Packages/directories:** lowercase, single word (`routers/`, `internal/`, `core/`).
+- **Packages/directories:** lowercase, single word (`routers/`, `api/`, `core/`).
 
 ### FastAPI Patterns
 

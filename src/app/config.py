@@ -80,11 +80,28 @@ class Settings(BaseSettings):
     show_stack_traces: bool = Field(default=False)
     log_level: str = Field(default="INFO")
 
+    _INSECURE_SECRET_KEY_DEFAULT = "dev-secret-key-not-for-production"
+    _INSECURE_API_SERVICE_KEY_DEFAULT = "dev-inbound-key-replace-me"
+
     @model_validator(mode="after")
     def _enforce_production_safety(self) -> "Settings":
-        """Force show_stack_traces off in production, regardless of env var."""
+        """Force show_stack_traces off in production, and refuse to boot
+        with known placeholder secrets in production."""
         if self.environment == "production" and self.show_stack_traces:
             self.show_stack_traces = False
+
+        if self.environment == "production":
+            if self.secret_key == self._INSECURE_SECRET_KEY_DEFAULT:
+                raise ValueError(
+                    "secret_key is still set to its insecure development "
+                    "default — set a real SECRET_KEY in production."
+                )
+            if self.api_service_key == self._INSECURE_API_SERVICE_KEY_DEFAULT:
+                raise ValueError(
+                    "api_service_key is still set to its insecure development "
+                    "default — set a real API_SERVICE_KEY in production."
+                )
+
         return self
 
     log_output: str = Field(
@@ -115,11 +132,25 @@ class Settings(BaseSettings):
         ),
     )
 
+    # AI Suggestion Worker
+    enable_suggestion_worker: bool = Field(
+        default=True,
+        description="Enable the background AI suggestion worker loop.",
+    )
+
     # External AI Services
     openai_api_key: str | None = Field(default=None)
     anthropic_api_key: str | None = Field(default=None)
     google_ai_api_key: str | None = Field(default=None)
     google_ai_model: str = Field(default="gemini-2.5-flash-lite")
+
+    # Internal API Integration
+    api_base_url: str = Field(
+        description="Base URL of the fluent-api service. Set in .env — never hardcode here."
+    )
+    api_service_key: str = Field(
+        description="Key used to authenticate outgoing requests to fluent-api. Set in .env — never hardcode here."
+    )
 
     @property
     def is_production(self) -> bool:

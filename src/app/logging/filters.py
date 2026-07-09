@@ -52,7 +52,7 @@ _EMAIL_RE = re.compile(r"^([^@]+)(@.+)$")
 
 def scrub_dict(data: dict[str, Any]) -> dict[str, Any]:
     """Return a new dict with sensitive values redacted."""
-    result = {}
+    result: dict[str, Any] = {}
     for key, value in data.items():
         if isinstance(key, str) and key.lower() in _SENSITIVE_KEYS:
             result[key] = "[REDACTED]"
