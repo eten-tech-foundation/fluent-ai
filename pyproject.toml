@@ -38,3 +38,9 @@ target-version = "py314"
 
 [tool.mypy]
 cache_dir = "/tmp/.mypy_cache"
+python_version = "3.14"
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["asyncpg", "greekroom", "greekroom.*"]
+ignore_missing_imports = true

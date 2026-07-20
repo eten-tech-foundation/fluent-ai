@@ -59,7 +59,7 @@ async def _upsert_admin_key(session: AsyncSession, *, key_hash: str, name: str) 
         .on_conflict_do_nothing(index_elements=["key_hash"])
     )
     result = await session.execute(stmt)
-    return (result.rowcount or 0) > 0
+    return (result.rowcount or 0) > 0  # type: ignore[attr-defined]
 
 
 async def seed_admin_api_keys(session: AsyncSession, settings: Settings) -> None:

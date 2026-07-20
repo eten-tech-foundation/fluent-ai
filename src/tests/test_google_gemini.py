@@ -27,6 +27,8 @@ def _settings_with_key(
     """Build a minimal Settings instance with Google AI credentials."""
     return Settings(
         database_url="postgresql+asyncpg://user:pass@localhost:5432/test",
+        api_base_url="http://localhost:8000",
+        api_service_key="test-key",
         google_ai_api_key=key,
         google_ai_model=model,
     )
@@ -88,6 +90,7 @@ async def test_generate_content_returns_text(mock_genai: MagicMock) -> None:
     mock_aio.models.generate_content.assert_awaited_once_with(
         model="gemini-2.5-flash-lite",
         contents="Hello world",
+        config=None,
     )
 
 

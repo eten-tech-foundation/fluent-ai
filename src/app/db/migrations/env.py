@@ -56,7 +56,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         include_schemas=True,
-        include_name=include_name,
+        include_name=include_name,  # type: ignore[arg-type]
         include_object=include_object,
         version_table="alembic_version",
         version_table_schema="ai",
@@ -71,7 +71,7 @@ def do_run_migrations(connection: Connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         include_schemas=True,
-        include_name=include_name,
+        include_name=include_name,  # type: ignore[arg-type]
         include_object=include_object,
         version_table="alembic_version",
         version_table_schema="ai",

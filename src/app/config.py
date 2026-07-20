@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     db_pool_recycle: int = Field(default=1800)  # recycle connections after 30 min
 
     # Security
-    secret_key: str = Field(default="your-secret-key-change-in-production")
+    secret_key: str = Field(default="dev-secret-key-not-for-production")
 
     # API Keys
     api_key_default_expiry_days: int | None = Field(
