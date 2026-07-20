@@ -45,7 +45,9 @@ async def test_process_job_requeues_on_transient_failure_without_raising(
             return {
                 "targetLanguageName": "Spanish",
                 "contextVerses": [],
-                "sourceVerses": [{"id": 1, "verse_number": 1, "text": "In the beginning"}],
+                "sourceVerses": [
+                    {"id": 1, "verse_number": 1, "text": "In the beginning"}
+                ],
             }
 
     async def _fake_post(self, *args, **kwargs):
@@ -87,7 +89,9 @@ async def test_process_job_marks_failed_after_max_retries(
             return {
                 "targetLanguageName": "Spanish",
                 "contextVerses": [],
-                "sourceVerses": [{"id": 1, "verse_number": 1, "text": "In the beginning"}],
+                "sourceVerses": [
+                    {"id": 1, "verse_number": 1, "text": "In the beginning"}
+                ],
             }
 
     async def _fake_post(self, *args, **kwargs):
@@ -119,7 +123,9 @@ async def test_updated_at_changes_on_status_update(db_session, make_job):
 
 
 @pytest.mark.asyncio
-async def test_reclaim_stale_jobs_requeues_orphaned_processing_job(db_session, make_job):
+async def test_reclaim_stale_jobs_requeues_orphaned_processing_job(
+    db_session, make_job
+):
     from app.core.constants import STALE_PROCESSING_TIMEOUT_MINUTES
 
     stale_job = await make_job(status="processing")
@@ -210,7 +216,9 @@ async def test_process_job_skips_malformed_verse_id_instead_of_failing_job(
             return {
                 "targetLanguageName": "Spanish",
                 "contextVerses": [],
-                "sourceVerses": [{"id": 42, "verse_number": 1, "text": "In the beginning"}],
+                "sourceVerses": [
+                    {"id": 42, "verse_number": 1, "text": "In the beginning"}
+                ],
             }
 
     class _FakeResultsResponse:
@@ -272,7 +280,9 @@ async def test_process_job_skips_non_string_verse_id_instead_of_crashing(
             return {
                 "targetLanguageName": "Spanish",
                 "contextVerses": [],
-                "sourceVerses": [{"id": 42, "verse_number": 1, "text": "In the beginning"}],
+                "sourceVerses": [
+                    {"id": 42, "verse_number": 1, "text": "In the beginning"}
+                ],
             }
 
     class _FakeResultsResponse:
@@ -322,7 +332,9 @@ async def test_process_job_reuses_single_httpx_client(db_session, make_job):
             return {
                 "targetLanguageName": "Spanish",
                 "contextVerses": [],
-                "sourceVerses": [{"id": 42, "verse_number": 1, "text": "In the beginning"}],
+                "sourceVerses": [
+                    {"id": 42, "verse_number": 1, "text": "In the beginning"}
+                ],
             }
 
     class _FakeResultsResponse:
@@ -385,7 +397,9 @@ async def test_process_job_fails_when_all_items_are_dropped(db_session, make_job
             return {
                 "targetLanguageName": "Spanish",
                 "contextVerses": [],
-                "sourceVerses": [{"id": 42, "verse_number": 1, "text": "In the beginning"}],
+                "sourceVerses": [
+                    {"id": 42, "verse_number": 1, "text": "In the beginning"}
+                ],
             }
 
     async def _fake_post(self, url, *args, **kwargs):

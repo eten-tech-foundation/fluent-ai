@@ -34,6 +34,7 @@ cache_dir = "/tmp/.pytest_cache"
 
 [tool.ruff]
 cache-dir = "/tmp/.ruff_cache"
+target-version = "py314"
 
 [tool.mypy]
 cache_dir = "/tmp/.mypy_cache"

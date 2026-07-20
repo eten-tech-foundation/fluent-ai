@@ -27,11 +27,22 @@ def upgrade() -> None:
         sa.Column("task_type", sa.String(length=50), nullable=False),
         sa.Column("payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("dedup_key", sa.String(length=255), nullable=False),
-        sa.Column("status", sa.String(length=20), server_default=sa.text("'queued'"), nullable=False),
-        sa.Column("retry_count", sa.Integer(), server_default=sa.text("0"), nullable=False),
+        sa.Column(
+            "status",
+            sa.String(length=20),
+            server_default=sa.text("'queued'"),
+            nullable=False,
+        ),
+        sa.Column(
+            "retry_count", sa.Integer(), server_default=sa.text("0"), nullable=False
+        ),
         sa.Column("error_message", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.text("now()"), nullable=True),
-        sa.Column("updated_at", sa.DateTime(), server_default=sa.text("now()"), nullable=True),
+        sa.Column(
+            "created_at", sa.DateTime(), server_default=sa.text("now()"), nullable=True
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(), server_default=sa.text("now()"), nullable=True
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("dedup_key", name="uq_jobs_dedup_key"),
         schema="ai",

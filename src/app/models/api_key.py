@@ -40,14 +40,20 @@ class ApiKey(OwnedBase):
         {"schema": "ai"},
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     key_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    permissions: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default="{}")
+    permissions: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default="{}"
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     owner_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     owner_org_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=datetime.utcnow
     )
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
