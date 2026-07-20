@@ -37,4 +37,8 @@ jobs:
               run: uv run mypy .
 
             - name: Test (pytest)
+              env:
+                  DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/test
+                  API_BASE_URL: http://localhost:8000
+                  API_SERVICE_KEY: test-service-key
               run: uv run pytest
