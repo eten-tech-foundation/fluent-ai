@@ -44,9 +44,7 @@ PROD_KEY_NAME = "Admin Key"
 ADMIN_OWNER_USER_ID = 97
 
 
-async def _upsert_admin_key(
-    session: AsyncSession, *, key_hash: str, name: str
-) -> bool:
+async def _upsert_admin_key(session: AsyncSession, *, key_hash: str, name: str) -> bool:
     """Insert an admin key by hash; return True if a new row was created."""
     stmt = (
         pg_insert(ApiKey)
@@ -61,7 +59,7 @@ async def _upsert_admin_key(
         .on_conflict_do_nothing(index_elements=["key_hash"])
     )
     result = await session.execute(stmt)
-    return (result.rowcount or 0) > 0
+    return (result.rowcount or 0) > 0  # type: ignore[attr-defined]
 
 
 async def seed_admin_api_keys(session: AsyncSession, settings: Settings) -> None:

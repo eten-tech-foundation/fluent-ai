@@ -13,9 +13,12 @@ class VerseToTranslate(BaseModel):
 
 
 class TranslateRequest(BaseModel):
-    target_language_name: str = Field(description="Name of the target language for the prompt instructions")
+    target_language_name: str = Field(
+        description="Name of the target language for the prompt instructions"
+    )
     context_verses: list[ContextVerse] = Field(
-        default_factory=list, description="Previously translated verses serving as context"
+        default_factory=list,
+        description="Previously translated verses serving as context",
     )
     verses_to_translate: list[VerseToTranslate] = Field(
         description="The new verses to translate"

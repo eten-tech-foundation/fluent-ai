@@ -37,13 +37,17 @@ async def db_session():
     @event.listens_for(engine.sync_engine, "connect")
     def register_now(dbapi_conn, connection_record) -> None:
         dbapi_conn.create_function(
-            "now", 0, lambda: datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+            "now",
+            0,
+            lambda: datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
         )
 
     async with engine.begin() as conn:
         await conn.run_sync(scratch_metadata.create_all)
 
-    session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    session_factory = async_sessionmaker(
+        bind=engine, class_=AsyncSession, expire_on_commit=False
+    )
     async with session_factory() as session:
         yield session
     await engine.dispose()

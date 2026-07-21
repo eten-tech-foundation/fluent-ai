@@ -101,9 +101,7 @@ class RepeatedWordsService:
         return f"{lang_code}-{uuid.uuid4().hex[:8]}"
 
     @staticmethod
-    def _build_jsonrpc_envelope(
-        request: RepeatedWordsRequest, message_id: str
-    ) -> dict:
+    def _build_jsonrpc_envelope(request: RepeatedWordsRequest, message_id: str) -> dict:
         """Translate the flat Fluent-AI request into greek-room's JSON-RPC shape."""
         return {
             "jsonrpc": "2.0",

@@ -45,12 +45,17 @@ def test_development_settings_allows_default_secrets():
     assert settings.secret_key == "dev-secret-key-not-for-production"
 
 
-def test_api_base_url_is_required():
+def test_api_base_url_is_required(monkeypatch: pytest.MonkeyPatch):
     """Verify that api_base_url is a required field."""
     from pydantic import ValidationError
 
+    # pydantic-settings reads os.environ regardless of _env_file, so the
+    # ambient environment (e.g. CI job-level env vars) must be cleared here
+    # or this test silently passes for the wrong reason.
+    monkeypatch.delenv("API_BASE_URL", raising=False)
+
     with pytest.raises(ValidationError, match="api_base_url"):
-        Settings(
+        Settings(  # type: ignore[call-arg]
             _env_file=None,
             database_url="postgresql+asyncpg://user:pass@localhost:5432/test",
             environment="development",

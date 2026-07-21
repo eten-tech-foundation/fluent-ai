@@ -16,6 +16,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import OwnedBase
 
+
 class Job(OwnedBase):
     """Background job queue for AI translation suggestions.
 
@@ -37,8 +38,8 @@ class Job(OwnedBase):
     task_type: Mapped[str] = mapped_column(String(50), nullable=False)
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
     dedup_key: Mapped[str] = mapped_column(String(255), nullable=False)
-    status: Mapped[Literal["queued", "processing", "completed", "failed"]] = mapped_column(
-        String(20), nullable=False, server_default=text("'queued'")
+    status: Mapped[Literal["queued", "processing", "completed", "failed"]] = (
+        mapped_column(String(20), nullable=False, server_default=text("'queued'"))
     )
     retry_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")

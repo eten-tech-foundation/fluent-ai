@@ -82,7 +82,10 @@ async def process_job(
         settings = translation_service.settings
         api_base_url = settings.api_base_url.rstrip("/")
         api_key = settings.api_service_key
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
 
         async with httpx.AsyncClient() as client:
             # 1. Fetch context and source verses from API
@@ -146,7 +149,7 @@ async def process_job(
             for item in result.translations:
                 try:
                     verse_num = int(item.verse_id.split("_")[-1])
-                except (ValueError, AttributeError):
+                except ValueError, AttributeError:
                     logger.warning(
                         f"Job {job.id}: skipping unparseable verse_id "
                         f"{item.verse_id!r} from LLM response."
@@ -161,12 +164,14 @@ async def process_job(
                 )
 
                 if bible_text:
-                    items.append({
-                        "bibleTextId": bible_text["id"],
-                        "projectUnitId": project_unit_id,
-                        "suggestedText": item.target_text,
-                        "modelInfo": translation_service.settings.google_ai_model,
-                    })
+                    items.append(
+                        {
+                            "bibleTextId": bible_text["id"],
+                            "projectUnitId": project_unit_id,
+                            "suggestedText": item.target_text,
+                            "modelInfo": translation_service.settings.google_ai_model,
+                        }
+                    )
                 else:
                     logger.warning(
                         f"Job {job.id}: LLM returned verse_id for verse "
@@ -227,18 +232,27 @@ async def process_job(
 
         # Retry logic: re-queue if under the retry limit — unless this is a
         # permanent failure that retrying cannot fix.
-        if not isinstance(e, NonRetryableJobError) and current_retry_count < MAX_JOB_RETRIES:
+        if (
+            not isinstance(e, NonRetryableJobError)
+            and current_retry_count < MAX_JOB_RETRIES
+        ):
             new_retry_count = current_retry_count + 1
             job.retry_count = new_retry_count
             job.status = "queued"
-            job.error_message = f"Retry {new_retry_count}/{MAX_JOB_RETRIES}: {str(e)[:500]}"
+            job.error_message = (
+                f"Retry {new_retry_count}/{MAX_JOB_RETRIES}: {str(e)[:500]}"
+            )
             logger.info(
                 f"Re-queuing job {job_id} (retry {new_retry_count}/{MAX_JOB_RETRIES})"
             )
         else:
             job.status = "failed"
-            job.error_message = f"Permanently failed after {MAX_JOB_RETRIES} retries: {str(e)[:500]}"
-            logger.error(f"Job {job_id} permanently failed after {MAX_JOB_RETRIES} retries.")
+            job.error_message = (
+                f"Permanently failed after {MAX_JOB_RETRIES} retries: {str(e)[:500]}"
+            )
+            logger.error(
+                f"Job {job_id} permanently failed after {MAX_JOB_RETRIES} retries."
+            )
 
         await db.commit()
 
@@ -315,14 +329,13 @@ async def worker_loop():
 
         except Exception as e:
             consecutive_failures += 1
-            logger.error(
-                f"Worker loop error (failure #{consecutive_failures}): {e}"
-            )
+            logger.error(f"Worker loop error (failure #{consecutive_failures}): {e}")
 
             # M3 Fix: Exponential backoff on repeated failures
             if consecutive_failures >= WORKER_MAX_CONSECUTIVE_FAILURES:
                 backoff = min(
-                    WORKER_POLL_INTERVAL_SECONDS * (2 ** (consecutive_failures - WORKER_MAX_CONSECUTIVE_FAILURES)),
+                    WORKER_POLL_INTERVAL_SECONDS
+                    * (2 ** (consecutive_failures - WORKER_MAX_CONSECUTIVE_FAILURES)),
                     300,  # Cap at 5 minutes
                 )
                 logger.warning(
