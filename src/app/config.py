@@ -44,11 +44,6 @@ class Settings(BaseSettings):
         description="Full asyncpg connection URL. Set in .env — never hardcode here."
     )
 
-    # Optional override used only by Alembic — connect as the `migrations`
-    # role (DDL privileges) instead of `ai_user` (DML only). Falls back to
-    # database_url when unset.
-    migrations_database_url: str | None = Field(default=None)
-
     # Connection pool settings
     db_pool_size: int = Field(default=5)  # number of persistent connections
     db_max_overflow: int = Field(default=10)  # extra connections above pool_size
@@ -171,16 +166,6 @@ class Settings(BaseSettings):
         postgres:// or postgresql:// scheme (e.g. from .env).
         """
         url = self.database_url
-        if url.startswith("postgres://"):
-            url = url.replace("postgres://", "postgresql+asyncpg://", 1)
-        elif url.startswith("postgresql://") and "+asyncpg" not in url:
-            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
-        return url
-
-    @property
-    def alembic_database_url(self) -> str:
-        """URL used by Alembic. Prefer migrations_database_url, else fall back."""
-        url = self.migrations_database_url or self.database_url
         if url.startswith("postgres://"):
             url = url.replace("postgres://", "postgresql+asyncpg://", 1)
         elif url.startswith("postgresql://") and "+asyncpg" not in url:

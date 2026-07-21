@@ -89,6 +89,7 @@ jobs:
             - name: Run Alembic migrations
               env:
                   MIGRATIONS_DATABASE_URL: ${{ secrets.MIGRATIONS_DATABASE_URL }}
+                  DATABASE_URL: ${{ secrets.DATABASE_URL }}
               run: uv run alembic upgrade head
               # If this step fails, the job stops here — appsettings/deploy below never run.
 
@@ -170,6 +171,7 @@ jobs:
             - name: Run Alembic migrations
               env:
                   MIGRATIONS_DATABASE_URL: ${{ secrets.MIGRATIONS_DATABASE_URL }}
+                  DATABASE_URL: ${{ secrets.DATABASE_URL }}
               run: uv run alembic upgrade head
               # If this step fails, the job stops here — appsettings/deploy below never run.
 
