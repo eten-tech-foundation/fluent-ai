@@ -21,6 +21,8 @@ venv
 .pytest_cache
 .coverage
 htmlcov
+src/tests
+tests
 
 # Build
 *.egg-info
@@ -37,9 +39,26 @@ build
 docker-compose*.yml
 compose.yaml
 .dockerignore
+Dockerfile
+Dockerfile.dev
 
-# Scripts
+# Scripts and orchestration helpers (not needed in the prod image).
+# NOTE: `scripts/` is intentionally NOT excluded — CI/CD uses this same image
+# to run `scripts/bootstrap.py` for out-of-band schema/role provisioning.
+# NOTE: `docker-entrypoint.sh` is intentionally NOT excluded — Dockerfile.dev
+# COPYs it as a fallback for standalone runs without a bind mount.
 fai.sh
 fai.ps1
 fai
 fai.bat
+
+# Documentation and notes — not shipped to production
+docs
+*.md
+AGENTS.md
+
+# CI / tooling
+.github
+.gitlab
+.idea
+.vscode
