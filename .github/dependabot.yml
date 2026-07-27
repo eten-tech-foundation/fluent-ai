@@ -9,6 +9,17 @@ updates:
       open-pull-requests-limit: 5
       cooldown:
           default-days: 7
+      groups:
+          # Batch all github-actions SHA bumps into a single weekly PR so
+          # SHA-pinned workflows stay maintainable (one review/merge instead
+          # of one PR per action). See docs/guides/dependabot-workflow.md
+          # → "SHA pinning for GitHub Actions".
+          github-actions:
+              patterns:
+                  - 'actions/*'
+                  - 'astral-sh/*'
+                  - 'docker/*'
+                  - 'azure/*'
       labels:
           - 'github-actions'
           - 'dependencies'
