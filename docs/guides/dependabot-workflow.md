@@ -54,14 +54,37 @@ change wire-protocol or migration behavior silently.
 
 `./fai.sh` (or `fai.ps1` on Windows) is the only sanctioned way to run the validation
 gate for Dependabot PRs. It builds the AI service image with the PR's `uv.lock` /
-`pyproject.toml` and runs every check **inside the container**, against a **freshly
-created, disposable Postgres container** — not a long-lived local DB, and not the
-mocked/SQLite fixtures in `tests/conftest.py`. This is what makes `alembic upgrade
-head` and real `asyncpg` round-trips part of the gate instead of being skipped.
+`pyproject.toml` and runs every check **inside the container**, with a **freshly
+created, disposable Postgres container** alongside it — not a long-lived local DB.
+
+What the gate actually exercises against the ephemeral Postgres:
+
+- **`./fai.sh db:init`** runs `alembic upgrade head` and the idempotent seeds against the
+  fresh DB over real `asyncpg`. This is the step that catches
+  `sqlalchemy`/`alembic`/`asyncpg` bumps that break DDL or driver behavior.
+- **`./fai.sh test`** runs `uv run pytest` inside the container, but the suite under
+  `tests/conftest.py` overrides `get_db` with an `AsyncMock(spec=AsyncSession)`, so the
+  tests do **not** exercise the ephemeral Postgres — they catch import-time breakage,
+  Pydantic schema regressions, and FastAPI routing/contract issues from dependency bumps.
+  Real DB round-trips are covered by `db:init` and the risky-PR seed step, not by pytest.
+
+In short: the containerized DB is what makes the **migration/seed** gate real; the
+**pytest** gate is mocked at the session layer and runs in the container only to catch
+non-DB regressions under the PR's locked dependency set.
 
 ### Standard validation sequence
 
-Run this for **every** Dependabot PR before merge, safe or risky:
+Run this for **risky** Dependabot PRs (always) and **safe** PRs (when CI is not already
+green, or when the bump touches `pyproject.toml` rather than only `uv.lock`). **CI-only**
+PRs (`.github/workflows/*` action bumps) skip this sequence — they need workflow
+validation only, see [SHA pinning for GitHub Actions](#sha-pinning-for-github-actions).
+The full validation matrix:
+
+| Category | Local `fai.sh` gate | CI green suffices? |
+|----------|---------------------|--------------------|
+| **Risky** | Required (full sequence + risky-PR additions) | No |
+| **Safe** | Required unless CI is fully green; still required if `pyproject.toml` is touched | Yes (if `uv.lock`-only) |
+| **CI-only** | Not required — workflow syntax validation only | Yes |
 
 ```bash
 # 1. Fetch and check out the PR branch
@@ -92,9 +115,12 @@ git checkout dependabot-pr-<PR_NUMBER>
 - `./fai.sh db:migrate` runs `alembic upgrade head` inside the container against the
   ephemeral DB — this is the step that catches `sqlalchemy`/`alembic`/`asyncpg` bumps
   that break migrations, which the mocked test fixtures cannot catch.
-- `./fai.sh test` runs `uv run pytest tests/ -v` inside the AI container. Combined with
-  the fresh containerized DB, this exercises real DB-backed paths, not just the
-  SQLite/mocked-session fixtures under `tests/conftest.py`.
+- `./fai.sh test` runs `uv run pytest tests/ -v` inside the AI container. Note that
+  `tests/conftest.py` overrides `get_db` with an `AsyncMock(spec=AsyncSession)`, so the
+  suite does **not** hit the ephemeral Postgres — it catches import-time, Pydantic
+  schema, and FastAPI routing regressions from the bumped dependency set. Real
+  DB-backed coverage comes from `./fai.sh db:init` (and the risky-PR seed step), not
+  from pytest.
 - `./fai.sh clean` after the run removes the pod/containers and the pgdata volume so
   nothing lingers for the next PR or the next contributor.
 
@@ -195,22 +221,32 @@ gh pr comment <PR_NUMBER> --body "@dependabot rebase"
 
 ### 3. Validate and merge (one at a time)
 
-1. Run the [standard validation sequence](#standard-validation-sequence) (and the
-   risky-PR additions if applicable).
-2. For **safe** PRs where GitHub CI (Pre-Merge Validation workflow) is already fully
-   green, the local `fai.sh` gate can be skipped — CI runs the same `ruff` / `mypy` /
-   `pytest` checks. Still prefer the local containerized gate for anything touching
-   `pyproject.toml` dependencies rather than only `uv.lock`.
-3. Approve and merge:
+1. Apply the [validation matrix](#standard-validation-sequence):
+   - **Risky**: run the full standard sequence **and** the risky-PR additions.
+   - **Safe**: run the standard sequence, or skip it only if GitHub CI (Pre-Merge
+     Validation workflow) is already fully green **and** the bump touches only
+     `uv.lock` (not `pyproject.toml`). CI runs the same `ruff` / `mypy` / `pytest`
+     checks, so a green CI-only `uv.lock` bump is safe to merge on CI alone.
+   - **CI-only**: no `fai.sh` gate — validate workflow syntax only (see
+     [SHA pinning for GitHub Actions](#sha-pinning-for-github-actions)).
+2. Approve and merge, using the approval message that matches the validation actually
+   performed — do **not** universally claim `fai.sh` passed:
 
    ```bash
-   gh pr review <PR_NUMBER> --approve --body "CI green, fai.sh gate passed against ephemeral DB."
+   # Risky — full local gate ran:
+   gh pr review <PR_NUMBER> --approve --body "Risky bump: fai.sh gate passed (db:init + seeds + lint/typecheck/test) against ephemeral DB."
+   # Safe, local gate ran:
+   gh pr review <PR_NUMBER> --approve --body "Safe bump: fai.sh gate passed against ephemeral DB."
+   # Safe, CI-only path (uv.lock-only, CI green):
+   gh pr review <PR_NUMBER> --approve --body "Safe bump: CI green, uv.lock-only change — local gate skipped per validation matrix."
+   # CI-only (github-actions SHA bump):
+   gh pr review <PR_NUMBER> --approve --body "CI-only: workflow syntax validated, no app runtime impact."
    gh pr merge <PR_NUMBER> --squash --delete-branch
    ```
 
-4. Wait for `develop` CI (`Pre-Merge Validation` / equivalent post-merge checks) to go
+3. Wait for `develop` CI (`Pre-Merge Validation` / equivalent post-merge checks) to go
    green: `gh run list --branch develop --limit 5`.
-5. Immediately rebase all other open bots in parallel (step 2), then repeat from
+4. Immediately rebase all other open bots in parallel (step 2), then repeat from
    triage for the next green PR.
 
 ### 4. Final validation on `develop`
