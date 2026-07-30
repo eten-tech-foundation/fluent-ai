@@ -193,3 +193,11 @@ curl http://localhost:8200/api-keys/me \
 docker build -t fluent-ai .
 docker run -p 8200:8200 --env-file .env fluent-ai
 ```
+
+## Releases / Versioning
+
+This project uses Calendar Versioning (CalVer) with the format `YY.MM.SERIAL` (e.g., `26.7.1`).
+Currently, releases for `fluent-ai` are manual. To release a new version:
+1. Update `version` in `pyproject.toml` to the current `YY.MM.SERIAL` (incrementing serial if a release this month already exists).
+2. Commit the change (e.g. `chore(release): v26.7.1`).
+3. Tag the commit (e.g. `v26.7.1`) and push.
