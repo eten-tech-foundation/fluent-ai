@@ -1,5 +1,6 @@
 import os
 from functools import lru_cache
+from importlib.metadata import PackageNotFoundError, version as pkg_version
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,6 +17,14 @@ def _get_env_file() -> str:
     return ".env"
 
 
+def _get_app_version() -> str:
+    """Read version from installed package metadata, with a safe fallback."""
+    try:
+        return pkg_version("fluent-ai")
+    except PackageNotFoundError:
+        return "0.0.0-dev"
+
+
 class Settings(BaseSettings):
     """Application settings with environment variable support."""
 
@@ -28,7 +37,7 @@ class Settings(BaseSettings):
 
     # Application
     app_name: str = Field(default="Fluent AI API")
-    app_version: str = Field(default="0.1.0")
+    app_version: str = Field(default_factory=_get_app_version)
     debug: bool = Field(default=False)
     environment: str = Field(default="development")
 

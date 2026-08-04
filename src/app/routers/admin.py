@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 
+from app.config import get_settings
 from app.dependencies import GoogleGeminiDep
 from app.security.auth import require_admin
 
@@ -22,11 +23,12 @@ async def get_admin_stats():
 @router.get("/health", dependencies=[Depends(require_admin)])
 async def admin_health_check():
     """Admin health check with more details"""
+    settings = get_settings()
     return {
         "status": "healthy",
         "database": "connected",
         "cache": "connected",
-        "version": "0.1.0",
+        "version": settings.app_version,
     }
 
 
