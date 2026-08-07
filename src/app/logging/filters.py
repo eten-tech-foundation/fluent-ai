@@ -52,7 +52,7 @@ _EMAIL_RE = re.compile(r"^([^@]+)(@.+)$")
 
 def scrub_dict(data: dict[str, Any]) -> dict[str, Any]:
     """Return a new dict with sensitive values redacted."""
-    result = {}
+    result: dict[str, Any] = {}
     for key, value in data.items():
         if isinstance(key, str) and key.lower() in _SENSITIVE_KEYS:
             result[key] = "[REDACTED]"
@@ -103,8 +103,8 @@ class RequestContextFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         from app.logging.context import get_correlation_id, get_request_id
 
-        record.request_id = get_request_id()  # type: ignore[attr-defined]
-        record.correlation_id = get_correlation_id()  # type: ignore[attr-defined]
+        record.request_id = get_request_id()
+        record.correlation_id = get_correlation_id()
         return True
 
 
@@ -114,5 +114,5 @@ class SensitiveDataFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         structured = getattr(record, "_structured", None)
         if structured and isinstance(structured, dict):
-            record._structured = scrub_dict(structured)  # type: ignore[attr-defined]
+            record._structured = scrub_dict(structured)
         return True

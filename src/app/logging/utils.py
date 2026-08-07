@@ -8,6 +8,8 @@ Use this everywhere; don't construct loggers directly.
 """
 
 import logging
+from collections.abc import MutableMapping
+from typing import Any
 
 
 class StructuredLogger(logging.LoggerAdapter):
@@ -22,7 +24,9 @@ class StructuredLogger(logging.LoggerAdapter):
 
     _RESERVED = frozenset({"exc_info", "stack_info", "stacklevel", "extra"})
 
-    def process(self, msg: str, kwargs: dict) -> tuple[str, dict]:
+    def process(
+        self, msg: str, kwargs: MutableMapping[str, Any]
+    ) -> tuple[str, MutableMapping[str, Any]]:
         structured: dict = dict(self.extra) if self.extra else {}
 
         # Extract non-reserved kwargs into structured data.

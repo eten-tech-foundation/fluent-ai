@@ -9,5 +9,8 @@
 # No DB queries. No business logic. No raw SQL.
 #
 # Active endpoint modules:
-#   api_keys.py   — CRUD for API keys (admin writes, key-holder reads)
+#   api_keys.py     — CRUD for API keys (admin writes, key-holder reads)
+#   greek_room.py   — Greek-Room text-analysis tools (repeated-words check)
+#   suggestions.py  — Trigger endpoint for AI translation-suggestion jobs
+#   translations.py — Synchronous verse translation (Dynamic RAG)
 #

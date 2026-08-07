@@ -27,6 +27,8 @@ def _settings_with_key(
     """Build a minimal Settings instance with Google AI credentials."""
     return Settings(
         database_url="postgresql+asyncpg://user:pass@localhost:5432/test",
+        api_base_url="http://localhost:8000",
+        api_service_key="test-key",
         google_ai_api_key=key,
         google_ai_model=model,
     )
@@ -88,6 +90,7 @@ async def test_generate_content_returns_text(mock_genai: MagicMock) -> None:
     mock_aio.models.generate_content.assert_awaited_once_with(
         model="gemini-2.5-flash-lite",
         contents="Hello world",
+        config=None,
     )
 
 
@@ -111,3 +114,34 @@ async def test_generate_content_raises_on_sdk_error(mock_genai: MagicMock) -> No
     assert exc_info.value.code == ErrorCode.EXTERNAL_SERVICE_ERROR
     assert isinstance(exc_info.value.details, dict)
     assert "quota exceeded" in exc_info.value.details.get("error", "")
+
+
+@patch("app.core.ai_clients.google_gemini.genai")
+@pytest.mark.asyncio
+async def test_generate_content_passes_response_schema_through(
+    mock_genai: MagicMock,
+) -> None:
+    from pydantic import BaseModel
+
+    class _Schema(BaseModel):
+        translations: list[dict]
+
+    mock_response = MagicMock()
+    mock_response.text = "{}"
+    mock_client_instance = MagicMock()
+    mock_client_instance.aio.models.generate_content = AsyncMock(
+        return_value=mock_response
+    )
+    mock_genai.Client.return_value = mock_client_instance
+
+    settings = _settings_with_key()
+    client = GoogleGeminiClient(settings=settings)
+
+    await client.generate_content(
+        prompt="translate this",
+        response_mime_type="application/json",
+        response_schema=_Schema,
+    )
+
+    _, kwargs = mock_client_instance.aio.models.generate_content.call_args
+    assert kwargs["config"].response_schema is _Schema

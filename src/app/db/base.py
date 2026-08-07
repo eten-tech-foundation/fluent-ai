@@ -1,6 +1,6 @@
 """db/base.py — SQLAlchemy DeclarativeBase subclasses.
 
-    OwnedBase — parent for all models in the `ai` schema (api_keys, ...).
+    OwnedBase — parent for models in the `ai` schema (api_keys, jobs, ...).
                 Alembic's target_metadata = OwnedBase.metadata.
                 All `ai`-schema model modules must be imported below so
                 Alembic's autogenerate sees them.
@@ -18,3 +18,4 @@ class OwnedBase(DeclarativeBase):
 
 # Import owned-schema models so Alembic autogenerate can detect them.
 from app.models import api_key  # noqa: E402, F401
+from app.models import job  # noqa: E402, F401

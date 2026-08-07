@@ -134,7 +134,9 @@ def resolve_url(cli_value: str | None) -> str:
     return "http://localhost:8200"
 
 
-def post_json(url: str, body: dict[str, Any], api_key: str, timeout: float) -> tuple[int, bytes, str]:
+def post_json(
+    url: str, body: dict[str, Any], api_key: str, timeout: float
+) -> tuple[int, bytes, str]:
     """POST a JSON body and return ``(status_code, raw_body, content_type)``.
 
     HTTPError responses are converted to a normal ``(status, body, ct)``
@@ -155,13 +157,17 @@ def post_json(url: str, body: dict[str, Any], api_key: str, timeout: float) -> t
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, resp.read(), resp.headers.get("Content-Type", "")
     except urllib.error.HTTPError as exc:
-        return exc.code, exc.read(), exc.headers.get("Content-Type", "") if exc.headers else ""
+        return (
+            exc.code,
+            exc.read(),
+            exc.headers.get("Content-Type", "") if exc.headers else "",
+        )
 
 
 def try_parse_json(raw: bytes) -> Any | None:
     try:
         return json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except UnicodeDecodeError, json.JSONDecodeError:
         return None
 
 
@@ -202,8 +208,12 @@ def run_sanity_checks(payload: Any) -> list[tuple[bool, str]]:
         "result.findings has exactly 2 entries",
         len(findings) == 2,
     )
-    legitimate = [f for f in findings if isinstance(f, dict) and f.get("legitimate") is True]
-    suspicious = [f for f in findings if isinstance(f, dict) and f.get("legitimate") is False]
+    legitimate = [
+        f for f in findings if isinstance(f, dict) and f.get("legitimate") is True
+    ]
+    suspicious = [
+        f for f in findings if isinstance(f, dict) and f.get("legitimate") is False
+    ]
     record("exactly one legitimate finding", len(legitimate) == 1)
     record("exactly one suspicious finding", len(suspicious) == 1)
 
@@ -257,9 +267,7 @@ def main(argv: list[str]) -> int:
     print("", file=sys.stderr)
 
     try:
-        status, raw_body, _ = post_json(
-            endpoint, SAMPLE_REQUEST, api_key, args.timeout
-        )
+        status, raw_body, _ = post_json(endpoint, SAMPLE_REQUEST, api_key, args.timeout)
     except urllib.error.URLError as exc:
         print(f"error: could not reach {endpoint}: {exc.reason}", file=sys.stderr)
         return 1
