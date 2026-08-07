@@ -11,6 +11,7 @@ Covers:
 import json
 import logging
 import os
+from typing import Any
 from unittest.mock import patch
 
 from app.config import Settings
@@ -18,6 +19,17 @@ from app.logging.config import configure_logging
 from app.logging.filters import SensitiveDataFilter, scrub_dict, scrub_url
 from app.logging.formatters import DevFormatter, JsonFormatter
 from app.logging.utils import StructuredLogger, get_logger
+
+
+def _settings(environment: str, **kwargs: Any) -> Settings:
+    """Build a Settings instance suitable for unit tests."""
+    defaults: dict[str, Any] = {
+        "database_url": "postgresql+asyncpg://u:p@localhost:5432/db",
+        "api_base_url": "http://localhost:8000",
+        "api_service_key": "test-service-key",
+        "secret_key": "not-the-insecure-default-secret",
+    }
+    return Settings(environment=environment, **{**defaults, **kwargs})
 
 
 # --------------------------------------------------------------------------- #
@@ -30,36 +42,28 @@ class TestProductionSafety:
 
     def test_stack_traces_forced_off_in_production(self):
         """Even if SHOW_STACK_TRACES=true, production must override to False."""
-        settings = Settings(
+        settings = _settings(
             environment="production",
             show_stack_traces=True,
-            database_url="postgresql+asyncpg://u:p@localhost:5432/db",
         )
         assert settings.show_stack_traces is False
 
     def test_stack_traces_default_off_in_production(self):
         """Default value of show_stack_traces is False in production."""
-        settings = Settings(
-            environment="production",
-            database_url="postgresql+asyncpg://u:p@localhost:5432/db",
-        )
+        settings = _settings(environment="production")
         assert settings.show_stack_traces is False
 
     def test_stack_traces_allowed_in_development(self):
         """Development environments may enable stack traces."""
-        settings = Settings(
+        settings = _settings(
             environment="development",
             show_stack_traces=True,
-            database_url="postgresql+asyncpg://u:p@localhost:5432/db",
         )
         assert settings.show_stack_traces is True
 
     def test_stack_traces_off_by_default_in_development(self):
         """Even in development, show_stack_traces defaults to False."""
-        settings = Settings(
-            environment="development",
-            database_url="postgresql+asyncpg://u:p@localhost:5432/db",
-        )
+        settings = _settings(environment="development")
         assert settings.show_stack_traces is False
 
     def test_stack_traces_via_env_var_blocked_in_production(self):
@@ -70,24 +74,17 @@ class TestProductionSafety:
             "DATABASE_URL": "postgresql+asyncpg://u:p@localhost:5432/db",
         }
         with patch.dict(os.environ, env, clear=False):
-            settings = Settings(
+            settings = _settings(
                 _env_file=None,
                 environment="production",
                 show_stack_traces=True,
-                database_url="postgresql+asyncpg://u:p@localhost:5432/db",
             )
             assert settings.show_stack_traces is False
 
     def test_is_production_property(self):
         """Verify is_production returns True only for 'production'."""
-        prod = Settings(
-            environment="production",
-            database_url="postgresql+asyncpg://u:p@localhost:5432/db",
-        )
-        dev = Settings(
-            environment="development",
-            database_url="postgresql+asyncpg://u:p@localhost:5432/db",
-        )
+        prod = _settings(environment="production")
+        dev = _settings(environment="development")
         assert prod.is_production is True
         assert dev.is_production is False
 
@@ -113,10 +110,7 @@ class TestConfigureLogging:
 
     def test_dev_uses_dev_formatter(self):
         """Development mode should use DevFormatter with stdout handler."""
-        settings = Settings(
-            environment="development",
-            database_url="postgresql+asyncpg://u:p@localhost:5432/db",
-        )
+        settings = _settings(environment="development")
         configure_logging(settings)
 
         root = logging.getLogger()
@@ -128,10 +122,9 @@ class TestConfigureLogging:
         import app.logging.config as cfg
 
         cfg._configured = False
-        settings = Settings(
+        settings = _settings(
             environment="production",
             log_output="stdout",
-            database_url="postgresql+asyncpg://u:p@localhost:5432/db",
         )
         configure_logging(settings)
 
@@ -141,10 +134,7 @@ class TestConfigureLogging:
 
     def test_idempotent_configuration(self):
         """configure_logging should only run once."""
-        settings = Settings(
-            environment="development",
-            database_url="postgresql+asyncpg://u:p@localhost:5432/db",
-        )
+        settings = _settings(environment="development")
         configure_logging(settings)
         handler_count = len(logging.getLogger().handlers)
         configure_logging(settings)
@@ -207,13 +197,13 @@ class TestSensitiveDataRedaction:
             args=(),
             exc_info=None,
         )
-        record._structured = {"user": "alice", "password": "s3cret"}  # type: ignore[attr-defined]
+        record._structured = {"user": "alice", "password": "s3cret"}
 
         f = SensitiveDataFilter()
         f.filter(record)
 
-        assert record._structured["user"] == "alice"  # type: ignore[attr-defined]
-        assert record._structured["password"] == "[REDACTED]"  # type: ignore[attr-defined]
+        assert record._structured["user"] == "alice"
+        assert record._structured["password"] == "[REDACTED]"
 
 
 # --------------------------------------------------------------------------- #
@@ -271,8 +261,8 @@ class TestJsonFormatter:
             args=(),
             exc_info=None,
         )
-        record.request_id = "req-123"  # type: ignore[attr-defined]
-        record.correlation_id = ""  # type: ignore[attr-defined]
+        record.request_id = "req-123"
+        record.correlation_id = ""
 
         output = formatter.format(record)
         data = json.loads(output)

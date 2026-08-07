@@ -11,5 +11,6 @@ Downgrade one revision:
 
 Configuration:
     alembic.ini at the repo root points here.
-    env.py loads the DB URL from app.config (Settings.alembic_database_url).
+    env.py resolves the DB URL from the environment (MIGRATIONS_DATABASE_URL,
+    falling back to DATABASE_URL) — no other app settings are required.
     Target metadata is OwnedBase only — never touches public/pgboss/drizzle.

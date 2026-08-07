@@ -139,7 +139,9 @@ class TestRepeatedWordsEndpoint:
             request_schema = RepeatedWordsRequest
             response_schema = RepeatedWordsResult
 
-            async def execute(self, request: RepeatedWordsRequest) -> RepeatedWordsResult:
+            async def execute(
+                self, request: RepeatedWordsRequest
+            ) -> RepeatedWordsResult:
                 raise ToolExecutionException(
                     tool=self.name,
                     message="simulated upstream failure",
@@ -160,7 +162,5 @@ class TestRepeatedWordsEndpoint:
 
     def test_missing_api_key_returns_401(self, client):
         """No X-API-Key header and no dep override → 401 from require_api_key."""
-        response = client.post(
-            "/tools/greek-room/repeated-words", json=SAMPLE_PAYLOAD
-        )
+        response = client.post("/tools/greek-room/repeated-words", json=SAMPLE_PAYLOAD)
         assert response.status_code == 401

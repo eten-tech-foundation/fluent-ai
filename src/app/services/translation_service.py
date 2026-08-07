@@ -44,16 +44,16 @@ class TranslationService:
         for tv in request.verses_to_translate:
             target_block += f"[Verse ID: {tv.verse_id}]\nSource: {tv.source_text}\n\n"
         target_block += "</verses_to_translate>\n\n"
-        
+
         # Build JSON instruction
         target_block += (
             "Respond ONLY with a valid JSON object matching this schema. Do not include any markdown formatting or extra text.\n"
             "{\n"
             '  "translations": [\n'
-            '    {\n'
+            "    {\n"
             '      "verse_id": "...",\n'
             '      "target_text": "..."\n'
-            '    }\n'
+            "    }\n"
             "  ]\n"
             "}"
         )

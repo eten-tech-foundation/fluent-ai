@@ -1,12 +1,12 @@
 [project]
 name = "fluent-ai"
-version = "0.1.0"
+version = "26.7.1"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "fastapi[standard]>=0.128.0",
-    "pydantic-settings>=2.0.0",
+    "pydantic-settings>=2.14.2",
     # Database
     "sqlalchemy[asyncio]>=2.0.0",
     "asyncpg>=0.30.0",
@@ -34,6 +34,13 @@ cache_dir = "/tmp/.pytest_cache"
 
 [tool.ruff]
 cache-dir = "/tmp/.ruff_cache"
+target-version = "py314"
 
 [tool.mypy]
 cache_dir = "/tmp/.mypy_cache"
+python_version = "3.14"
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["asyncpg", "greekroom", "greekroom.*"]
+ignore_missing_imports = true

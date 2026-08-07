@@ -1,51 +1,92 @@
 # syntax=docker/dockerfile:1
 
-FROM python:3.14-slim
+# Dev image for fluent-ai. Mirrors the production Dockerfile as closely as
+# possible while preserving development workflows (hot-reload, dev deps,
+# in-container lint/test/typecheck via `uv run`).
+#
+# Key differences from the production Dockerfile (all driven by dev workflow
+# requirements, documented inline):
+#   - Single-stage build (not multi-stage) — `fai.sh test/lint/typecheck/run`
+#     exec into the container and need `uv`, dev dependencies, and `build-base`
+#     present in the final image.
+#   - `uv sync` includes dev dependencies (`--no-dev` is omitted).
+#   - `build-base` is installed and kept — dev may `uv add` packages that
+#     resolve to musl-incompatible sdists and need compilation.
+#   - Application source is NOT copied — it is bind-mounted read-only at
+#     runtime for hot-reload. `docker-entrypoint.sh` and `alembic.ini` are
+#     copied as fallbacks for standalone runs without a bind mount.
+#   - CMD runs `docker-entrypoint.sh` (bootstrap → migrate → seed →
+#     `fastapi dev` with hot-reload), not `uvicorn` directly.
 
-# Install dumb-init for proper signal handling and curl for healthchecks
-RUN apt-get update && \
-    apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends dumb-init curl && \
-    rm -rf /var/lib/apt/lists/*
+# Base image: same as production, pinned by digest for reproducible builds
+# and to surface musl/Alpine issues during development rather than only in prod.
+FROM python:3.14-alpine3.24@sha256:26730869004e2b9c4b9ad09cab8625e81d256d1ce97e72df5520e806b1709f92
 
-# Prevent Python from writing bytecode and enable unbuffered output
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+# OCI labels for traceability (same as production).
+LABEL org.opencontainers.image.title="fluent-ai-dev" \
+      org.opencontainers.image.source="https://github.com/eten-tech-foundation/fluent-ai" \
+      org.opencontainers.image.description="FastAPI backend for AI services — development image"
 
-# Create non-root user with limited permissions
-RUN groupadd -g 1001 python && \
-    useradd -u 1001 -g python -s /bin/false python
+# Same ENV block as production. UV_CACHE_DIR is overridden by compose/podman
+# to a tmpfs path (/tmp/.uv-cache) at runtime; the default here covers
+# standalone runs.
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_CACHE_DIR=/tmp/uv-cache \
+    UV_PROJECT_ENVIRONMENT=/app/.venv \
+    PYTHONPATH="/app/src" \
+    PATH="/app/.venv/bin:${PATH}"
+
+# Install dumb-init (PID 1 signal handling), curl (HEALTHCHECK), and
+# build-base (compiler toolchain for sdist builds during `uv add`/`uv sync`).
+# dumb-init and curl versions are pinned to match the production image;
+# build-base is unpinned because it is a meta-package and dev does not
+# require byte-reproducible toolchain versions.
+RUN apk update && \
+    apk add --no-cache dumb-init=1.2.5-r4 curl=8.21.0-r0 build-base && \
+    rm -rf /var/cache/apk/*
 
 WORKDIR /app
 
-# Install uv for fast dependency management
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+# Pin uv by digest, same as production. Bump the tag and digest together.
+COPY --from=ghcr.io/astral-sh/uv:0.11.30@sha256:93b61e21202b1dab861092748e46bbd6e0e41dd84f59b9174efd2353186e1b47 /uv /uvx /bin/
 
-# Copy dependency files
+# Copy dependency manifests first to maximise layer reuse across code changes.
 COPY pyproject.toml uv.lock ./
 
-# Install all dependencies including dev
-RUN uv sync --frozen --no-install-project
+# Install ALL dependencies (including dev: pytest, ruff, mypy, httpx,
+# aiosqlite) but not the project itself — source is bind-mounted at runtime.
+# The cache mount speeds up rebuilds and keeps the uv cache out of the image.
+RUN --mount=type=cache,target=/tmp/uv-cache \
+    uv sync --frozen --no-install-project
 
-# Copy entrypoint and Alembic config (source code is bind-mounted for hot-reload).
-# alembic.ini is also bind-mounted by compose/podman, so this COPY is a fallback
-# that lets the image work standalone if someone runs it without a bind mount.
+# Create a non-root user (uid/gid 1001 to match compose/podman runtime) and a
+# logs directory for file-based logging (LOG_OUTPUT=file|both). Alpine uses
+# BusyBox addgroup/adduser rather than shadow-utils groupadd/useradd.
+RUN addgroup -g 1001 -S python && \
+    adduser -u 1001 -G python -S -s /bin/false -D -H python && \
+    mkdir -p /app/logs && \
+    chown -R python:python /app/.venv /app/logs
+
+# Copy entrypoint and Alembic config as fallbacks for standalone runs.
+# In normal dev usage (compose/podman), these are bind-mounted read-only and
+# override the copies. Source code (src/, scripts/, tests/) is intentionally
+# NOT copied — it is always bind-mounted for hot-reload.
 COPY --chown=python:python docker-entrypoint.sh alembic.ini ./
 
-# Create log directory for file-based logging (LOG_OUTPUT=file|both)
-RUN mkdir -p /app/logs
-
-# Set ownership for app directory
-RUN chown -R python:python /app
-
-# Switch to non-root user
 USER python
 
 EXPOSE 8200
 
+# Liveness/readiness probe. Same as production.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8200/health || exit 1
 
-# Use dumb-init for proper signal handling
+# dumb-init reaps zombies and forwards signals. Same as production.
 ENTRYPOINT ["dumb-init", "--"]
+
+# Run the dev entrypoint: bootstrap → migrate → seed → `fastapi dev` with
+# hot-reload. Migrations run on every container start here (unlike prod,
+# where they are out-of-band) because dev iterates on schema changes and
+# the operations are idempotent. Set SKIP_DB_BOOTSTRAP=1 to skip them.
 CMD ["sh", "docker-entrypoint.sh"]

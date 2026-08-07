@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy.dialects.postgresql import dialect as pg_dialect
 from sqlalchemy.dialects.postgresql.dml import Insert
 
+from app.config import Settings
 from app.db.seeds.api_keys import (
     ADMIN_OWNER_USER_ID,
     DEV_KEY_HASH,
@@ -22,12 +23,13 @@ from app.db.seeds.api_keys import (
 )
 
 
-def _make_settings(
-    *, environment: str, admin_hash: str | None = None
-) -> SimpleNamespace:
-    return SimpleNamespace(
+def _make_settings(*, environment: str, admin_hash: str | None = None) -> Settings:
+    return Settings(
+        database_url="postgresql+asyncpg://user:pass@localhost:5432/test",
+        api_base_url="http://localhost:8000",
+        api_service_key="test-key",
+        secret_key="not-the-insecure-default-secret",
         environment=environment,
-        is_production=(environment == "production"),
         admin_api_key_hash=admin_hash,
     )
 

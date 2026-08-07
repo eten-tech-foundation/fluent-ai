@@ -1,0 +1,32 @@
+name: Cleanup Merged Branch
+
+on:
+    pull_request:
+        types: [closed]
+        branches: [main]
+
+permissions:
+    contents: write
+
+jobs:
+    delete-branch:
+        name: Delete merged branch
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: github.event.pull_request.merged == true
+        steps:
+            - name: Delete branch
+              uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+              with:
+                  script: |
+                      const branch = context.payload.pull_request.head.ref;
+                      const protectedBranches = ["main", "master", "develop"];
+                      if (protectedBranches.includes(branch)) {
+                        console.log(`Refusing to delete protected branch: ${branch}`);
+                        return;
+                      }
+                      await github.rest.git.deleteRef({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        ref: `heads/${branch}`,
+                      });

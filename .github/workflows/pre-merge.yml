@@ -1,0 +1,50 @@
+name: Pre-Merge Validation
+
+on:
+    pull_request:
+        types: [opened, synchronize, reopened, ready_for_review]
+        branches: [main]
+
+permissions:
+    contents: read
+
+concurrency:
+    group: pre-merge-${{ github.head_ref }}
+    cancel-in-progress: true
+
+jobs:
+    validate:
+        name: Lint, Typecheck, Test
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        if: ${{ !github.event.pull_request.draft }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+              with:
+                  persist-credentials: false
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+              with:
+                  python-version: '3.14'
+                  enable-cache: true
+
+            - name: Install dependencies
+              run: uv sync --frozen
+
+            - name: Lint (ruff check)
+              run: uv run ruff check .
+
+            - name: Format check (ruff format)
+              run: uv run ruff format --check .
+
+            - name: Typecheck (mypy)
+              run: uv run mypy .
+
+            - name: Test (pytest)
+              env:
+                  DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/test
+                  API_BASE_URL: http://localhost:8000
+                  API_SERVICE_KEY: test-service-key
+              run: uv run pytest
