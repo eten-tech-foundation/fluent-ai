@@ -42,7 +42,7 @@ jobs:
                   persist-credentials: false
 
             - name: Log in to GHCR
-              uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+              uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
               with:
                   registry: ${{ env.REGISTRY }}
                   username: ${{ github.actor }}
@@ -88,7 +88,7 @@ jobs:
                   persist-credentials: false
 
             - name: Install uv
-              uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+              uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
               with:
                   python-version: '3.14'
 
@@ -103,7 +103,7 @@ jobs:
               # If this step fails, the job stops here — appsettings/deploy below never run.
 
             - name: Azure login
-              uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
+              uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
               with:
                   creds: ${{ secrets.AZURE_CREDENTIALS }}
 
@@ -173,7 +173,7 @@ jobs:
                   persist-credentials: false
 
             - name: Install uv
-              uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+              uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
               with:
                   python-version: '3.14'
 
@@ -188,7 +188,7 @@ jobs:
               # If this step fails, the job stops here — appsettings/deploy below never run.
 
             - name: Azure login
-              uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
+              uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
               with:
                   creds: ${{ secrets.AZURE_CREDENTIALS }}
 
