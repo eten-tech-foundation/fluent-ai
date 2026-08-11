@@ -231,9 +231,10 @@ class Settings(BaseSettings):
         default=20_000,
         description=(
             "Tripwire, not a product limit: legitimate input is verse-sized. "
-            "fluent-api enforces its own copy at the proxy edge; this one exists "
-            "for direct (non-fluent-api) consumers and the two are independent "
-            "by design — they need not hold equal values (§7.1)."
+            "This service is the SOLE authority on the limit (T27) — fluent-api "
+            "is a passive proxy that validates shape only and holds no copy of "
+            "this number, so there is no second value to drift. Enforced before "
+            "any provider call, so an oversized body is never billed (§7.1)."
         ),
     )
 
