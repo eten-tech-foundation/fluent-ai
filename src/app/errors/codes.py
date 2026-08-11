@@ -63,6 +63,24 @@ class ErrorCode:
     TOOL_EXECUTION_ERROR = "TOOL_EXECUTION_ERROR"
 
     # ------------------------------------------------------------------ #
+    # Service unavailable (503)
+    # ------------------------------------------------------------------ #
+    SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
+
+    # ------------------------------------------------------------------ #
+    # Source TTS (400, 502, 503)
+    #
+    # These codes are part of the TTS contract, not decoration: fluent-web
+    # branches on the HTTP status and an operator reads the code, so
+    # "text too long" must stay distinguishable from "malformed request"
+    # (source-tts proposal §7.1).
+    # ------------------------------------------------------------------ #
+    TTS_INVALID_REQUEST = "TTS_INVALID_REQUEST"
+    TTS_TEXT_TOO_LONG = "TTS_TEXT_TOO_LONG"
+    TTS_STORAGE_NOT_CONFIGURED = "TTS_STORAGE_NOT_CONFIGURED"
+    TTS_STORAGE_ERROR = "TTS_STORAGE_ERROR"
+
+    # ------------------------------------------------------------------ #
     # Internal (500)
     # ------------------------------------------------------------------ #
     INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR"

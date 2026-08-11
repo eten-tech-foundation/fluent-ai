@@ -128,6 +128,29 @@ class ExternalServiceException(FluentAIException):
     default_message = "An external service is unavailable. Please try again later."
 
 
+# --------------------------------------------------------------------------- #
+# 503 — Service Unavailable
+# --------------------------------------------------------------------------- #
+
+
+class ServiceUnavailableException(FluentAIException):
+    """A dependency this service needs is absent or temporarily saturated.
+
+    Distinct from ExternalServiceException (502: an upstream answered badly):
+    503 says "this service cannot serve the request right now", which is what a
+    caller should retry rather than report. Used for unconfigured artifact
+    storage and, later, for TTS admission-control rejection.
+
+    There is no dedicated handler for this class — the FluentAIException
+    catch-all in errors/handlers.py honours `status_code`, so 503 travels
+    correctly with no registration.
+    """
+
+    status_code = 503
+    default_code = ErrorCode.SERVICE_UNAVAILABLE
+    default_message = "The service is temporarily unable to handle the request."
+
+
 class ToolExecutionException(FluentAIException):
     """A tool implementation failed during execution.
 
