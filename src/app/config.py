@@ -1,8 +1,9 @@
 import os
 from functools import lru_cache
 from importlib.metadata import PackageNotFoundError, version as pkg_version
+from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -157,6 +158,131 @@ class Settings(BaseSettings):
     api_service_key: str = Field(
         description="Key used to authenticate outgoing requests to fluent-api. Set in .env — never hardcode here."
     )
+
+    # ----------------------------------------------------------------- #
+    # Source TTS — R2 artifact storage and synthesis recipe (§9.1, §9.3)
+    #
+    # ALL OF THIS IS OPTIONAL ON PURPOSE. Every credential below defaults
+    # to None so a deployment with no TTS configuration still BOOTS; TTS
+    # requests then fail cleanly at request time. Never raise at import
+    # time from missing TTS config — an unrelated deployment must not lose
+    # the whole service because it has no audio bucket.
+    #
+    # Credential var names are shared with fluent-api's R2 integration for
+    # org consistency (cf. fluent-api/src/env.ts).
+    # ----------------------------------------------------------------- #
+    r2_account_id: str | None = Field(default=None)
+    r2_access_key_id: str | None = Field(default=None)
+    r2_secret_access_key: str | None = Field(default=None)
+    r2_jurisdiction: str = Field(
+        default="eu",
+        description=(
+            "Data-at-rest jurisdiction, pinned via the endpoint host. 'eu' keeps "
+            "bytes in the EU (GDPR) and is the team's default — their issued "
+            "endpoint carries '.eu.'. Use 'default' for an unpinned bucket."
+        ),
+    )
+    r2_tts_bucket: str | None = Field(
+        default=None, description="Bucket holding TTS sidecars, audio and receipts."
+    )
+    tts_r2_prefix: str = Field(
+        default="",
+        description=(
+            "Key prefix inside the bucket, e.g. 'tts/'. The three artifact "
+            "prefixes (requests/, audio/, receipts/) live under it."
+        ),
+    )
+    tts_public_audio_base_url: str | None = Field(
+        default=None,
+        description=(
+            "Public base URL of the R2 custom domain used as the 302 target for "
+            "compressed audio (§7.3), e.g. 'https://dev.tts.fluent.bible'. When "
+            "unset, audio redirects must fail cleanly — never emit a "
+            "'None'-prefixed URL. qa/prod hostnames are not issued yet, so "
+            "'unset' is a legitimate state for those deployments."
+        ),
+    )
+    tts_hash_secret: str | None = Field(
+        default=None,
+        description=(
+            "HMAC key for artifact identity (§9.1). Scripture text is public, so "
+            "a bare content hash would be computable by anyone; this secret is "
+            "what makes knowing a hash a capability on the public R2 domain. "
+            "Set in .env — never hardcode here."
+        ),
+    )
+
+    tts_model: str = Field(
+        default="gemini-3.1-flash-tts-preview",
+        description="Configurable because preview model names change (§8.4).",
+    )
+    tts_voice: str = Field(
+        default="Kore", description="One deployment-wide voice in v1 (§8.4)."
+    )
+    tts_default_format: Literal["ogg-opus", "mp3"] = Field(
+        default="ogg-opus",
+        description=(
+            "Format an omitted request `format` resolves to BEFORE hashing and "
+            "sidecar creation (§7.1/CB2), so 'unspecified' never exists "
+            "internally. Changing it shifts which artifact omitting clients get."
+        ),
+    )
+    tts_max_text_length: int = Field(
+        default=20_000,
+        description=(
+            "Tripwire, not a product limit: legitimate input is verse-sized. "
+            "fluent-api enforces its own copy at the proxy edge; this one exists "
+            "for direct (non-fluent-api) consumers and the two are independent "
+            "by design — they need not hold equal values (§7.1)."
+        ),
+    )
+
+    @field_validator("tts_r2_prefix")
+    @classmethod
+    def _normalize_tts_r2_prefix(cls, value: str) -> str:
+        """Normalize the prefix to '' or 'something/' so key joins stay trivial.
+
+        Accepts 'tts', 'tts/', '/tts' and yields 'tts/'. Without this every
+        caller has to guess whether to add a slash, and a doubled or missing
+        separator silently creates a second, parallel artifact namespace.
+        """
+        trimmed = value.strip().strip("/")
+        return f"{trimmed}/" if trimmed else ""
+
+    @property
+    def r2_endpoint_url(self) -> str | None:
+        """Derive the R2 S3 endpoint; there is deliberately no env var for it.
+
+        Mirrors fluent-api/src/lib/blob-storage.ts:52-59 exactly:
+            eu      → https://{account}.eu.r2.cloudflarestorage.com
+            default → https://{account}.r2.cloudflarestorage.com
+
+        Returns None when the account id is unset, so callers surface a clean
+        configuration error rather than requesting 'https://None...'.
+        """
+        if not self.r2_account_id:
+            return None
+        jurisdiction = self.r2_jurisdiction.strip().lower()
+        segment = (
+            f"{jurisdiction}." if jurisdiction and jurisdiction != "default" else ""
+        )
+        return f"https://{self.r2_account_id}.{segment}r2.cloudflarestorage.com"
+
+    @property
+    def is_tts_storage_configured(self) -> bool:
+        """True when R2 artifact storage can actually be reached.
+
+        The hash secret is included because an artifact name computed with a
+        missing/blank secret is not a valid identity — it would be a bare hash
+        of public text, which §9.1 exists to prevent.
+        """
+        return bool(
+            self.r2_account_id
+            and self.r2_access_key_id
+            and self.r2_secret_access_key
+            and self.r2_tts_bucket
+            and self.tts_hash_secret
+        )
 
     @property
     def is_production(self) -> bool:
