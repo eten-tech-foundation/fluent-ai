@@ -12,7 +12,7 @@ dependencies = [
     "asyncpg>=0.30.0",
     "alembic>=1.13.0",
     # AI
-    "google-genai>=1.73.1",
+    "google-genai>=2.0.0",
     "greekroom>=0.0.20",
 ]
 
