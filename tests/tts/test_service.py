@@ -7,10 +7,12 @@ load-bearing. Those properties only stay true if something asserts them.
 """
 
 import json
+import logging
 
 import pytest
 from botocore.exceptions import ClientError
 
+from app.config import PCM_BYTES_PER_CHARACTER
 from app.schemas.tts import TtsGenerateRequest
 from app.services.tts.artifacts import TtsArtifactStore
 from app.services.tts.recipe import build_recipe
@@ -113,3 +115,46 @@ class TestAudioKey:
         """The format name describes the codec, the extension the container —
         conflating them is how a `.opus` key nothing serves gets created."""
         assert service.audio_key(HASH, "ogg-opus").endswith(".ogg")
+
+
+class TestLimitPairing:
+    """`TTS_MAX_TEXT_LENGTH` and `TTS_MAX_CLIP_BYTES` are one bound in two
+    units. The defaults derive from a single number so they cannot drift; an
+    operator overriding one of them can still reopen the gap, and that is worth
+    saying out loud at boot rather than discovering as a mid-stream abort."""
+
+    def test_the_shipped_defaults_agree(self):
+        settings = tts_settings()
+
+        implied = settings.tts_max_text_length * PCM_BYTES_PER_CHARACTER
+
+        # The longest text we accept must fit inside the biggest clip we allow,
+        # so oversized input is refused at `generate` — before any provider call
+        # and any billing — rather than killed once its audio outgrows the heap.
+        assert implied <= settings.tts_max_clip_bytes
+
+    def test_an_override_that_reopens_the_gap_is_logged(self, r2, caplog):
+        settings = tts_settings(tts_max_text_length=20_000)
+        store = TtsArtifactStore(
+            client=r2,  # type: ignore[arg-type]
+            bucket="fluent-tts-test",
+            prefix=settings.tts_r2_prefix,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            TtsService(settings=settings, store=store, provider=FakeTtsProvider())
+
+        assert "abort mid-stream" in caplog.text
+
+    def test_agreeing_limits_say_nothing(self, r2, caplog):
+        settings = tts_settings()
+        store = TtsArtifactStore(
+            client=r2,  # type: ignore[arg-type]
+            bucket="fluent-tts-test",
+            prefix=settings.tts_r2_prefix,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            TtsService(settings=settings, store=store, provider=FakeTtsProvider())
+
+        assert "abort mid-stream" not in caplog.text

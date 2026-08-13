@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
+from app.config import PCM_BYTES_PER_CHARACTER
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import (
     ExternalServiceException,
@@ -122,6 +123,31 @@ class TtsService:
             admission_wait_seconds=settings.tts_admission_wait_seconds,
             retry_after_seconds=settings.tts_retry_after_seconds,
         )
+        self._warn_if_limits_disagree()
+
+    def _warn_if_limits_disagree(self) -> None:
+        """Say so at boot when the two forms of one bound have drifted apart.
+
+        `TTS_MAX_TEXT_LENGTH` and `TTS_MAX_CLIP_BYTES` ship as the same limit in
+        two units (characters in, PCM bytes out). Both are overridable, and
+        overriding one alone reopens the gap this pairing closes: a text in
+        between passes validation, gets billed, synthesizes for minutes and is
+        then killed mid-stream, where the pair would have refused it for free.
+
+        A warning and not a refusal to boot — a wide character limit is a
+        wasteful configuration, not an unsafe one, and TTS misconfiguration must
+        never take down a service whose other tools are fine.
+        """
+        implied = self._settings.tts_max_text_length * PCM_BYTES_PER_CHARACTER
+        if implied > self._settings.tts_max_clip_bytes:
+            logger.warning(
+                "tts text limit admits text whose audio would exceed the clip "
+                "ceiling; oversized submissions will abort mid-stream after "
+                "being billed instead of being refused up front",
+                max_text_length=self._settings.tts_max_text_length,
+                implied_bytes=implied,
+                max_clip_bytes=self._settings.tts_max_clip_bytes,
+            )
 
     @property
     def heap(self) -> GenerationHeap:

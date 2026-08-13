@@ -16,7 +16,7 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
-from app.config import Settings, get_settings
+from app.config import MAX_TEXT_CHARS, Settings, get_settings
 from app.services.tts.provider import PcmFormat, TtsProviderRequest
 
 
@@ -50,7 +50,9 @@ def tts_settings(**overrides: Any) -> Settings:
         "tts_model": "test-tts-model",
         "tts_voice": "Kore",
         "tts_default_format": "ogg-opus",
-        "tts_max_text_length": 20_000,
+        # Pinned to the shipped default rather than a number of its own: a
+        # developer's .env must not change what the length tests exercise.
+        "tts_max_text_length": MAX_TEXT_CHARS,
     }
     base.update(overrides)
     return Settings.model_validate({**get_settings().model_dump(), **base})

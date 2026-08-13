@@ -53,13 +53,26 @@ LONGEST_VERSE_CHARS = 550
 PCM_BYTES_PER_CHARACTER = 4_000
 LONGEST_VERSE_BYTES = LONGEST_VERSE_CHARS * PCM_BYTES_PER_CHARACTER  # ~2.2 MB
 CLIP_CEILING_VERSE_MULTIPLE = 4
-"""Safety factor on the per-clip ceiling (operator decision, 2026-08-13).
+"""Safety factor on the largest thing this service will speak (operator
+decision, 2026-08-13).
 
-Four times the longest verse — so a legitimate clip can never reach the ceiling,
-and a generation that does is either a text far past verse-sized or a provider
-misbehaving. Both get killed, and both are worth an error rather than 3 minutes
-of RAM.
+Four times the longest verse — so a legitimate clip can never reach the limit,
+and anything that does is either a text far past verse-sized or a provider
+streaming audio nobody asked for. Both get stopped, and both are worth an error
+rather than three minutes of RAM.
 """
+
+# The same bound, expressed in the two units the service enforces it in: one
+# refuses input at `generate`, the other kills a generation that outgrows it.
+# **They are derived from one number on purpose.** Left independent they drift,
+# and the failure is silent and expensive: a text that passes the character
+# check but exceeds the byte ceiling is accepted, billed, synthesized for
+# minutes, and only *then* killed mid-stream — where a consistent pair refuses
+# it up front for free (operator decision, 2026-08-13). Both remain overridable
+# per-deployment; `TtsService` logs a warning at build time if an override
+# reintroduces the gap.
+MAX_TEXT_CHARS = CLIP_CEILING_VERSE_MULTIPLE * LONGEST_VERSE_CHARS  # 2,200
+MAX_CLIP_BYTES = MAX_TEXT_CHARS * PCM_BYTES_PER_CHARACTER  # 8.8 MB, ~183 s
 
 
 class Settings(BaseSettings):
@@ -264,13 +277,17 @@ class Settings(BaseSettings):
         ),
     )
     tts_max_text_length: int = Field(
-        default=20_000,
+        default=MAX_TEXT_CHARS,
         description=(
-            "Tripwire, not a product limit: legitimate input is verse-sized. "
-            "This service is the SOLE authority on the limit (T27) — fluent-api "
-            "is a passive proxy that validates shape only and holds no copy of "
-            "this number, so there is no second value to drift. Enforced before "
-            "any provider call, so an oversized body is never billed (§7.1)."
+            "Longest text this service will speak, in characters: 4x the longest "
+            "verse (see the sizing block above), i.e. 20x the corpus median. "
+            "Legitimate input is verse-sized (§7.1). Paired with "
+            "TTS_MAX_CLIP_BYTES — the same bound in bytes — so an oversized "
+            "text is refused here, before any provider call and any billing, "
+            "rather than being killed mid-stream once its audio outgrows the "
+            "clip ceiling. This service is the SOLE authority on the limit "
+            "(T27): fluent-api is a passive proxy that validates shape only and "
+            "holds no copy of this number, so there is no second value to drift."
         ),
     )
 
@@ -292,7 +309,7 @@ class Settings(BaseSettings):
         ),
     )
     tts_max_clip_bytes: int = Field(
-        default=CLIP_CEILING_VERSE_MULTIPLE * LONGEST_VERSE_BYTES,
+        default=MAX_CLIP_BYTES,
         description=(
             "Per-clip byte ceiling: one admission slot's reservation, and the "
             "per-append tripwire that kills a generation growing past it. "
