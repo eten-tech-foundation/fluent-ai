@@ -272,10 +272,55 @@ class GenerationHeap:
 
         # A count semaphore IS the byte gate once every count is worth the
         # per-clip ceiling (§9.2): concurrent generations cannot exceed the
-        # budget even if every one of them runs to the provider's output cap.
-        # Consciously conservative — real verse clips are a fraction of the
-        # ceiling — and true byte-accounting admission was rejected as v1
-        # complexity.
+        # budget even if every one of them runs to the ceiling. The guarantee
+        # is arithmetic rather than probabilistic, which is why admission never
+        # has to measure anything — and why the ceiling and the budget are not
+        # independent knobs.
+        #
+        # ------------------------------------------------------------------ #
+        # If you outgrow this, here is the next design — deliberately NOT built
+        # (operator decision, 2026-08-13: ship the simple gate, revisit if it
+        # bites). Two symptoms say it is time: 503s while the process is
+        # obviously not short of memory, or generations larger than a verse
+        # becoming a legitimate use case.
+        #
+        # The cost of a count gate is that every reservation is worst-case, so
+        # a five-second verse holds a slot sized for a three-minute one, and a
+        # stalled reader pins that whole slot until its buffer dies. Replace it
+        # with a byte budget:
+        #
+        #   * one integer of outstanding reservations, plus a set of waiting
+        #     `asyncio.Event`s;
+        #   * admit when `outstanding + want <= budget`, taking the bytes in the
+        #     SAME synchronous step as the check;
+        #   * on any release (or shrink), subtract and `set()` every waiter;
+        #     each waiter re-checks in a loop.
+        #
+        # Three properties make it right by construction, and all three are
+        # things a reviewer can check by reading rather than by reasoning about
+        # timing:
+        #
+        #   1. every mutation is synchronous and on the event loop, so no two
+        #      interleave and no lock is needed (the one off-loop caller, the
+        #      buffer's finalizer, already trampolines through
+        #      `call_soon_threadsafe` — see `_release`);
+        #   2. no lost wakeups: the failed check and the waiter's registration
+        #      are separated by no `await`, so any later release sees it;
+        #   3. spurious wakeups are harmless, because the waiter re-checks.
+        #
+        # Starvation of a large reservation is possible and is bounded by the
+        # existing admission timeout — it degrades to a 503 + Retry-After, which
+        # is a shipped failure mode, so no fairness queue is required.
+        #
+        # That unlocks two things this gate cannot express: reservations sized
+        # per clip (estimated from the text — ~4,000 bytes of PCM per character,
+        # see `config.py`'s sizing block), and shrinking a reservation to the
+        # clip's true size once the stream completes, so a stalled reader pins
+        # what it actually holds. The one hazard to respect is reference
+        # topology, not arithmetic: a shrinkable reservation must live in a
+        # holder that the buffer cannot reach, or the finalizer that releases it
+        # will never fire (N1, and the reason `_release` takes plain values).
+        # ------------------------------------------------------------------ #
         self._slots = max(1, max_buffered_bytes // max_clip_bytes)
         if max_buffered_bytes < max_clip_bytes:
             logger.warning(

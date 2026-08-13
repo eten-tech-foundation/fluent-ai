@@ -317,13 +317,17 @@ class TtsService:
             async with asyncio.timeout(self._settings.tts_generation_max_seconds):
                 async for chunk in self._provider.synthesize_stream(request):
                     if len(entry.buffer) + len(chunk) > ceiling:
-                        # Belt-and-braces (§9.2): a stream past the provider's
-                        # own output cap means a misbehaving provider, and one
-                        # runaway generation must not spend a slot's neighbours'
-                        # memory. Aborts through the honest-failure path.
+                        # §9.2's per-clip ceiling, and it is a real tripwire
+                        # now that it is derived from the longest verse rather
+                        # than from Gemini's output cap: reaching it means the
+                        # text was far past verse-sized, or the provider is
+                        # streaming audio nobody asked for. Either way one
+                        # runaway generation must not spend its neighbours'
+                        # memory, so it dies here, through the honest-failure
+                        # path (readers abort, the entry is discarded).
                         raise ExternalServiceException(
                             message="Audio generation exceeded the per-clip limit.",
-                            code=ErrorCode.TTS_PROVIDER_UNAVAILABLE,
+                            code=ErrorCode.TTS_CLIP_TOO_LONG,
                             details={"max_clip_bytes": ceiling},
                         )
                     await entry.append(chunk)

@@ -26,6 +26,42 @@ def _get_app_version() -> str:
         return "0.0.0-dev"
 
 
+# --------------------------------------------------------------------------- #
+# Source-TTS sizing — the derivation behind the byte defaults further down
+#
+# The per-clip ceiling is derived from *the product*, not from the provider.
+# What this service synthesizes is one verse (§7.1; pericope display plays its
+# verses one at a time), so the largest legitimate clip is the longest verse —
+# and the numbers below are measurements, not estimates:
+#
+# * **Characters.** The 31,104 real verses in the project corpus have a median
+#   of 110 characters and a maximum of 436. The longest verse in the Bible,
+#   Esther 8:9, is ~528 characters in English. 550 is the round number above
+#   both, and it is a per-*verse* bound, not a per-request one.
+# * **Bytes per character.** Measured on a real Gemini clip: 54 characters
+#   produced 4.56 s of audio (114 deltas x 40 ms), i.e. ~12 characters per
+#   second, and 24 kHz mono 16-bit PCM is 48,000 bytes per second. That is
+#   ~4,000 bytes of PCM per character of text.
+#
+# Caveats worth keeping, because the multiplier is what absorbs them: the rate
+# was measured on one English clip, and characters are not equally spoken across
+# scripts (the corpus above is Gujarati, an abugida). Re-measure across a long
+# verse and a non-Latin script before treating any of this as precise.
+# --------------------------------------------------------------------------- #
+
+LONGEST_VERSE_CHARS = 550
+PCM_BYTES_PER_CHARACTER = 4_000
+LONGEST_VERSE_BYTES = LONGEST_VERSE_CHARS * PCM_BYTES_PER_CHARACTER  # ~2.2 MB
+CLIP_CEILING_VERSE_MULTIPLE = 4
+"""Safety factor on the per-clip ceiling (operator decision, 2026-08-13).
+
+Four times the longest verse — so a legitimate clip can never reach the ceiling,
+and a generation that does is either a text far past verse-sized or a provider
+misbehaving. Both get killed, and both are worth an error rather than 3 minutes
+of RAM.
+"""
+
+
 class Settings(BaseSettings):
     """Application settings with environment variable support."""
 
@@ -250,19 +286,23 @@ class Settings(BaseSettings):
     tts_max_buffered_bytes: int = Field(
         default=256 * 1024 * 1024,
         description=(
-            "RAM ceiling for in-flight generation buffers (§9.2). 256 MiB ⇒ 8 "
+            "RAM ceiling for in-flight generation buffers (§9.2). 256 MiB ⇒ 30 "
             "worst-case slots. Container memory should provide ~1.5x headroom "
             "over this (ffmpeg subprocess, interpreter, fragmentation)."
         ),
     )
     tts_max_clip_bytes: int = Field(
-        default=16_384 * 1920,
+        default=CLIP_CEILING_VERSE_MULTIPLE * LONGEST_VERSE_BYTES,
         description=(
-            "Per-clip byte ceiling: one admission slot's worst-case reservation, "
-            "and the per-append tripwire that aborts a provider streaming past "
-            "its own limit. Derived, not guessed — Gemini's output_token_limit "
-            "(16384) x 1920 bytes per audio token (40 ms of 24 kHz mono 16-bit "
-            "PCM) = 30 MiB = the 655 s output cap §8.2 names."
+            "Per-clip byte ceiling: one admission slot's reservation, and the "
+            "per-append tripwire that kills a generation growing past it. "
+            "Derived from the product, not the provider — 4x the longest verse "
+            "(see the sizing block above) = 8.8 MB = ~183 s of audio, which is "
+            "5x the longest verse in the corpus and 20x the median one. "
+            "Gemini's own "
+            "output cap (16384 tokens x 1920 bytes = 30 MiB, 655 s) is 3.4x "
+            "higher and made a poor tripwire: a provider had to stream eleven "
+            "minutes of audio for one verse before anything noticed."
         ),
     )
     tts_admission_wait_seconds: float = Field(

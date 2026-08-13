@@ -89,9 +89,17 @@ class ErrorCode:
     # TTS_BUSY is the admission refusal (§9.2) and is the only code that
     # travels with a Retry-After header; a client that sees it waits and
     # retries rather than reporting a failure.
+    #
+    # TTS_CLIP_TOO_LONG is the per-append ceiling firing mid-generation. It is
+    # deliberately NOT TTS_TEXT_TOO_LONG: that one is a validation refusal at
+    # `generate`, before anything is billed, while this one means audio was
+    # already being paid for and streamed when it outgrew the ceiling. Reusing
+    # one code would hide the difference between "we said no" and "we stopped
+    # halfway", which are opposite facts about cost.
     TTS_ARTIFACT_NOT_FOUND = "TTS_ARTIFACT_NOT_FOUND"
     TTS_BUSY = "TTS_BUSY"
     TTS_PROVIDER_UNAVAILABLE = "TTS_PROVIDER_UNAVAILABLE"
+    TTS_CLIP_TOO_LONG = "TTS_CLIP_TOO_LONG"
 
     # ------------------------------------------------------------------ #
     # Internal (500)

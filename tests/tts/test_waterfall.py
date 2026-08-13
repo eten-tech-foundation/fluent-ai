@@ -378,9 +378,12 @@ class TestFailure:
     async def test_a_stream_over_the_per_clip_ceiling_aborts(
         self, r2, provider, settings
     ):
-        """§9.2's belt-and-braces overflow policy: a provider streaming past
-        its own documented output cap is misbehaving, and one runaway
-        generation must not spend its neighbours' memory."""
+        """§9.2's per-clip ceiling: a clip growing past the largest legitimate
+        verse is killed rather than allowed to spend its neighbours' memory.
+
+        The code is its own, not the provider's: `TTS_CLIP_TOO_LONG` says audio
+        was already being billed and streamed when it outgrew the ceiling,
+        where `TTS_TEXT_TOO_LONG` means `generate` refused before any spend."""
         settings = tts_settings(tts_max_clip_bytes=len(PCM_CHUNK) + 1)
         store = TtsArtifactStore(client=r2, bucket="b", prefix=settings.tts_r2_prefix)  # type: ignore[arg-type]
         service = TtsService(settings=settings, store=store, provider=provider)
@@ -391,7 +394,7 @@ class TestFailure:
         with pytest.raises(GenerationFailed):
             await drain(resolution)
 
-        assert resolution.entry.error == ErrorCode.TTS_PROVIDER_UNAVAILABLE
+        assert resolution.entry.error == ErrorCode.TTS_CLIP_TOO_LONG
         assert len(resolution.entry.buffer) <= settings.tts_max_clip_bytes
 
     async def test_attaching_to_an_already_failed_entry_is_a_502(

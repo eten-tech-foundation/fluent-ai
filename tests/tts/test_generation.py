@@ -28,7 +28,10 @@ from app.services.tts.wav import UNKNOWN_SIZE, WAV_HEADER_BYTES, streaming_wav_h
 
 
 MIB = 1024 * 1024
-CLIP_CEILING = 30 * MIB  # 16384 output tokens x 1920 bytes, i.e. 655 s of PCM
+# A test-local ceiling, not the shipped default (which is 4x the longest verse,
+# 8.8 MB — see config.py's sizing block). Round numbers here keep the slot
+# arithmetic below readable.
+CLIP_CEILING = 30 * MIB
 
 
 def recipe(text: str = "In the beginning") -> TtsRecipe:
