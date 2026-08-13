@@ -27,6 +27,7 @@ from app.errors.codes import ErrorCode
 from app.errors.exceptions import NotFoundException
 from app.models.api_key import ApiKey
 from app.schemas.tts import (
+    FORMAT_EXTENSIONS,
     STREAMING_EXTENSION,
     TtsGenerateRequest,
     TtsGenerateResponse,
@@ -37,14 +38,26 @@ from app.services.tts.service import AudioRedirect, TtsService
 router = APIRouter()
 
 
-_AUDIO_FILE_PATTERN = re.compile(rf"^([0-9a-f]{{64}})\.{STREAMING_EXTENSION}$")
-"""`{hash}.wav`, and nothing else.
+_SERVED_EXTENSIONS = (STREAMING_EXTENSION, *sorted(set(FORMAT_EXTENSIONS.values())))
+
+_AUDIO_FILE_PATTERN = re.compile(
+    rf"^([0-9a-f]{{64}})\.(?:{'|'.join(_SERVED_EXTENSIONS)})$"
+)
+"""`{hash}.wav`, `{hash}.ogg` or `{hash}.mp3` — resolved by **hash alone**.
 
 64 lowercase hex is exactly what HMAC-SHA256 produces (§9.1), so anything else
 cannot name an artifact this service could ever have authorized. Checked here
 rather than by a path-parameter pattern so a malformed name answers **404** —
 the vocabulary fluent-web's failure classifier already speaks (§6.1) — instead
 of a 422 it would have to learn.
+
+The extension is **not** part of the lookup, and is not content negotiation:
+`format` is inside the hash, so one hash resolves to exactly one artifact and
+the suffix only says which representation era the caller expected (§7.2). All
+three are accepted because fluent-api's path validator relays all three; taking
+only `.wav` here would turn its defensive breadth into a mystery 404 that no
+test on either side covers. Nothing generates the compressed spellings today —
+`generate` answers `.wav`, and the 302 points at R2's public domain, not here.
 """
 
 STREAMING_CACHE_CONTROL = "private, max-age=60"
@@ -128,10 +141,7 @@ async def read_tts_audio(
     match = _AUDIO_FILE_PATTERN.match(file)
     if match is None:
         raise NotFoundException(
-            message=(
-                f"Audio is served as {{hash}}.{STREAMING_EXTENSION}; "
-                f"'{file}' is not an artifact name."
-            ),
+            message=f"'{file}' is not an artifact name.",
             code=ErrorCode.TTS_ARTIFACT_NOT_FOUND,
         )
 

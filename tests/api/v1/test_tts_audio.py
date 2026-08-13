@@ -233,9 +233,35 @@ class TestNotFound:
         """404 rather than 422 on purpose: fluent-web's failure classifier
         speaks 404/503/302/200, and a fifth status would be an unhandled case
         in the client's recovery ladder."""
-        for bad in ("nope.wav", "abc.wav", f"{'a' * 64}.ogg", f"{'A' * 64}.wav"):
+        for bad in ("nope.wav", "abc.wav", f"{'a' * 64}.flac", f"{'A' * 64}.wav"):
             response = await audio_client.get(f"/tts/audio/{bad}")
             assert response.status_code == 404, bad
+
+    async def test_every_extension_fluent_api_relays_resolves_here(
+        self, audio_client, r2, settings, provider
+    ):
+        """fluent-api's path validator accepts `.wav`, `.ogg` and `.mp3` and
+        relays whichever arrived. Serving only `.wav` here would turn its
+        defensive breadth into a 404 that neither side's tests cover — and the
+        extension was never a lookup key anyway, because `format` is inside the
+        hash (§7.2)."""
+        digest = authorize(r2, settings, provider)
+
+        streaming = await audio_client.get(f"/tts/audio/{digest}.ogg")
+        assert streaming.status_code == 200
+        assert streaming.headers["content-type"] == "audio/wav"
+
+        r2.objects[f"{settings.tts_r2_prefix}audio/{digest}.ogg"] = {
+            "body": b"compressed",
+            "content_type": "audio/ogg",
+        }
+        compressed = await audio_client.get(
+            f"/tts/audio/{digest}.mp3", follow_redirects=False
+        )
+        # Resolved by hash, so the answer is the artifact's own object — the
+        # `.mp3` in the request is not a format request and cannot become one.
+        assert compressed.status_code == 302
+        assert compressed.headers["location"].endswith(f"{digest}.ogg")
 
 
 # ---------------------------------------------------------------------------
