@@ -389,3 +389,75 @@ class TestReader:
             drain_reader(entry), drain_reader(entry), write()
         )
         assert first == second == b"HDRone verse"
+
+
+# ---------------------------------------------------------------------------
+# Shutdown cancellation (§8.3)
+# ---------------------------------------------------------------------------
+
+
+class TestShutdownCancellation:
+    """The mechanics of `cancel_all` only.
+
+    What a cancelled generation *does* on its way out — abort its readers, mark
+    the entry failed, drop it and give the bytes back — belongs to the service
+    and is asserted there (`tests/tts/test_waterfall.py::TestShutdown`), against
+    the real task rather than a stand-in.
+    """
+
+    async def test_nothing_in_flight_is_a_no_op(self):
+        assert await heap().cancel_all() == 0
+
+    async def test_an_entry_without_a_task_is_not_awaited(self):
+        """Draining and failed entries have no task to cancel; a shutdown that
+        tried to await one would raise on the way down."""
+        h = heap()
+        entry, _ = await h.admit("a" * 64, recipe())
+
+        assert entry.task is None
+        assert await h.cancel_all() == 0
+
+    async def test_every_in_flight_task_is_cancelled_and_awaited(self):
+        """Cancelling without awaiting is the bug this closes: the loop would
+        close on tasks suspended mid-write and asyncio would log `Task was
+        destroyed but it is pending!` on every deploy that caught one."""
+        h = heap()
+        running = []
+        for index in range(3):
+            entry, _ = await h.admit(f"{'a' * 63}{index}", recipe())
+            entry.task = asyncio.create_task(
+                asyncio.sleep(3600), name=f"tts-generate-{index}"
+            )
+            running.append(entry.task)
+        await asyncio.sleep(0)
+
+        assert await h.cancel_all() == 3
+
+        assert all(task.cancelled() for task in running)
+
+    async def test_a_teardown_that_will_not_finish_does_not_hold_up_shutdown(self):
+        """The grace is bounded because the process is going away regardless.
+        The only way to reach it is a provider stream whose close is stuck —
+        which is why the heap logs those tasks by name instead of waiting."""
+        h = heap()
+        entry, _ = await h.admit("a" * 64, recipe())
+        reached_teardown = asyncio.Event()
+
+        async def close_hangs():
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                reached_teardown.set()
+                await asyncio.sleep(3600)
+
+        entry.task = asyncio.create_task(close_hangs(), name="tts-generate-stuck")
+        await asyncio.sleep(0)
+
+        assert await h.cancel_all(grace_seconds=0.05) == 1
+
+        assert reached_teardown.is_set()
+        assert not entry.task.done()  # still stuck, and no longer waited on
+
+        entry.task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await entry.task

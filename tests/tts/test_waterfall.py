@@ -409,3 +409,69 @@ class TestFailure:
 
         assert excinfo.value.status_code == 502
         assert excinfo.value.code == ErrorCode.TTS_PROVIDER_UNAVAILABLE
+
+
+# ---------------------------------------------------------------------------
+# Shutdown (§8.3)
+# ---------------------------------------------------------------------------
+
+
+class TestShutdown:
+    """SIGTERM, from the listener's side and from the budget's.
+
+    There is deliberately no drain-and-finish: a clip completed after every
+    listener's connection has died costs provider money to produce for nobody,
+    and the request sidecar on R2 means the restarted process — or any other
+    replica — regenerates on the next request.
+    """
+
+    async def test_shutdown_aborts_a_live_listener_and_drops_the_entry(
+        self, service, r2, settings, provider
+    ):
+        digest = authorize(r2, settings, provider)
+        provider.paced = True
+        resolution = await service.resolve_audio(digest)
+        assert isinstance(resolution, AudioStream)
+        entry, task = resolution.entry, resolution.entry.task
+        reader = resolution.reader()
+        assert await anext(reader) == resolution.header
+        provider.release()
+        # Mid-clip when the signal lands: bytes already heard, more expected.
+        assert await anext(reader) == PCM_CHUNK
+
+        await service.shutdown()
+
+        with pytest.raises(GenerationFailed) as excinfo:
+            await anext(reader)
+        # T22 again: the abort *is* the signal. Ending politely here would hand
+        # the listener a truncated verse indistinguishable from a short one.
+        assert excinfo.value.reason == "cancelled"
+        assert entry.state == "failed"
+        assert task is not None and task.cancelled()
+        # Dropped, so the client's retry against the restarted process (or
+        # another replica) re-enters through admission (§8.3).
+        assert service.heap.get(digest) is None
+
+    async def test_shutdown_gives_the_admission_slot_back(
+        self, service, r2, settings, provider
+    ):
+        """The accounting half. `CancelledError` is what runs the teardown that
+        releases the buffer — abandon the task instead and the bytes stay
+        reserved until the process dies."""
+        digest = authorize(r2, settings, provider)
+        provider.paced = True
+        resolution = await service.resolve_audio(digest)
+        await asyncio.sleep(0)  # let the detached task reach the provider
+        assert service.heap.buffered_bytes == service.heap.max_clip_bytes
+
+        del resolution  # the listener's connection dies with the process
+        await service.shutdown()
+        gc.collect()
+        await asyncio.sleep(0)  # the semaphore release is scheduled on the loop
+
+        assert service.heap.buffered_bytes == 0
+
+    async def test_shutdown_with_nothing_in_flight_is_quiet(self, service):
+        await service.shutdown()
+
+        assert service.heap.buffered_bytes == 0

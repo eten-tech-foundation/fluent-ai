@@ -43,6 +43,26 @@ logger = get_logger(__name__)
 GenerationState = Literal["generating", "complete", "failed"]
 
 
+SHUTDOWN_GRACE_SECONDS = 5.0
+"""How long shutdown waits for cancelled generations to finish tearing down.
+
+A **constant, not a setting**, because there is no deployment in which turning
+it would be the right move — it is bounded on both sides by things nobody
+configures here:
+
+* below, by what the teardown actually does — close the provider's stream, mark
+  the entry failed, discard it. All of that is in-memory and takes a loop tick,
+  except the stream close, which is one network teardown;
+* above, by the platform's own kill timeout, since a grace longer than that is
+  spent in a process the orchestrator is about to `SIGKILL` anyway. The smallest
+  common one is Docker's default 10 s (Kubernetes' is 30 s).
+
+Five seconds sits inside the smaller of those with room to spare. If it is ever
+exceeded, the log line says so by name — that is a stuck provider stream, and it
+is worth reading rather than worth a bigger number.
+"""
+
+
 class GenerationBuffer(bytearray):
     """A `bytearray` that can be weak-referenced.
 
@@ -432,6 +452,58 @@ class GenerationHeap:
         """
         if self._entries.get(entry.artifact) is entry:
             del self._entries[entry.artifact]
+
+    async def cancel_all(self, *, grace_seconds: float = SHUTDOWN_GRACE_SECONDS) -> int:
+        """Cancel every in-flight generation and let each one's teardown run.
+
+        §8.3's shutdown half. Cancelling **is** the design here — there is
+        deliberately no drain-and-finish: a clip finished after the listeners'
+        connections have died costs provider money to produce for nobody, and
+        the request sidecar on R2 means the restarted process (or any other
+        replica) regenerates on the next request. Nothing durable is lost.
+
+        What the bounded wait buys is that the *receiving* half actually runs.
+        `CancelledError` is what wakes readers so they abort instead of ending
+        politely, marks the entry failed, drops it out of the dict and lets its
+        buffer (and the admission slot behind it) go. Cancel without awaiting
+        and none of that happens: the loop closes on tasks suspended mid-write
+        and asyncio logs `Task was destroyed but it is pending!` on every deploy
+        that catches a generation in flight.
+
+        Returns how many tasks were cancelled, which is what the shutdown log
+        line and the tests read.
+        """
+        # Snapshot first: each task's teardown mutates `_entries` (via
+        # `discard`) and clears its own `entry.task` in the done-callback, so
+        # iterating the live dict here would be iterating what we are ending.
+        tasks = [
+            entry.task
+            for entry in list(self._entries.values())
+            if entry.task is not None
+        ]
+        if not tasks:
+            return 0
+
+        logger.info(
+            "tts shutdown cancelling in-flight generations",
+            count=len(tasks),
+            buffered_bytes=self.buffered_bytes,
+        )
+        for task in tasks:
+            task.cancel()
+
+        _, pending = await asyncio.wait(tasks, timeout=grace_seconds)
+        if pending:
+            # Not fatal, and not retried: the process is going away regardless.
+            # Named because the only way to get here is a provider stream whose
+            # close is stuck, which is a fact about the provider worth having.
+            logger.warning(
+                "tts generations still pending after the shutdown grace period",
+                count=len(pending),
+                grace_seconds=grace_seconds,
+                tasks=sorted(task.get_name() for task in pending),
+            )
+        return len(tasks)
 
     # ------------------------------------------------------------------ #
     # Observability (also what the admission tests assert against)

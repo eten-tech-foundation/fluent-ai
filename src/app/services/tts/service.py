@@ -360,6 +360,20 @@ class TtsService:
             buffered_bytes=self._heap.buffered_bytes,
         )
 
+    async def shutdown(self) -> None:
+        """Cancel every in-flight generation on the way down (§8.3).
+
+        Called by the application's lifespan, which is the only thing that
+        holds a handle on this process's heap. Phase 07 built the receiving
+        half of this — `_generate_into`'s `CancelledError` branch — and nothing
+        sent the cancel, so a deploy that caught a generation in flight
+        abandoned it mid-write.
+
+        There is no drain-and-finish here on purpose; the reasoning lives on
+        `GenerationHeap.cancel_all`, which does the work.
+        """
+        await self._heap.cancel_all()
+
     def _on_generation_done(self, entry: GenerationEntry, task: asyncio.Task) -> None:
         """The done-callback, with all three of its load-bearing duties (N1).
 

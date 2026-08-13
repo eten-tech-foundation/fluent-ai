@@ -9,6 +9,7 @@ from fastapi import FastAPI
 
 from app.api.v1.router import router as api_v1_router
 from app.config import get_settings
+from app.dependencies import peek_tts_service
 from app.errors.handlers import register_exception_handlers
 from app.errors.schemas import ErrorResponse
 from app.logging import configure_logging
@@ -56,6 +57,14 @@ async def lifespan(app: FastAPI):
         logger.info("AI suggestion worker disabled")
 
     yield
+
+    # TTS first: an in-flight generation is spending provider money right now,
+    # and its listeners' connections die with this process either way (§8.3).
+    # `peek_` and not `get_`: a process that never synthesized must not build a
+    # TTS service — and possibly raise — on its way out.
+    tts_service = peek_tts_service()
+    if tts_service is not None:
+        await tts_service.shutdown()
 
     if worker_task:
         worker_task.cancel()

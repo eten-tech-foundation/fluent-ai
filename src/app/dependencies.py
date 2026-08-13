@@ -12,6 +12,7 @@
 #   - GoogleGeminiDep              → Annotated shorthand for Depends(get_google_gemini_client)
 #   - get_repeated_words_service   → returns the lifespan-loaded RepeatedWordsService
 #   - get_tts_service              → returns the cached TtsService singleton
+#   - peek_tts_service             → that singleton if it exists, else None (shutdown)
 #
 # Example router usage:
 #   from app.dependencies import get_db, require_api_key
@@ -86,6 +87,25 @@ def get_tts_service() -> TtsService:
     return _tts_service
 
 
+def peek_tts_service() -> TtsService | None:
+    """Return the TtsService **only if one was ever built** — never build one.
+
+    Shutdown's handle on the process's generation heap (§8.3). It has to be a
+    peek and not `get_tts_service()`: building a service at teardown would
+    construct an R2 client for a process that is going away, and — on a
+    deployment with no TTS configuration — would raise a 503 out of the
+    lifespan, turning a clean shutdown into a crash on a service that had never
+    synthesized anything.
+
+    Note for tests: a suite that swaps a fake through
+    `app.dependency_overrides[get_tts_service]` never populates this global, so
+    lifespan cancellation is a no-op there. That is why the cancellation itself
+    is tested against the heap and the service directly, and only the wiring is
+    tested through the app.
+    """
+    return _tts_service
+
+
 def get_repeated_words_service(request: Request) -> RepeatedWordsService:
     """Return the RepeatedWordsService instance stashed on app.state by lifespan.
 
@@ -102,4 +122,5 @@ __all__ = [
     "GoogleGeminiDep",
     "get_repeated_words_service",
     "get_tts_service",
+    "peek_tts_service",
 ]
