@@ -9,6 +9,7 @@ logic (conditional-PUT conflict handling, key layout, error mapping) under
 test rather than mocked away.
 """
 
+import asyncio
 import hashlib
 import io
 from typing import Any
@@ -16,7 +17,7 @@ from typing import Any
 from botocore.exceptions import ClientError
 
 from app.config import Settings, get_settings
-from app.services.tts.provider import TtsProviderRequest
+from app.services.tts.provider import PcmFormat, TtsProviderRequest
 
 
 # --------------------------------------------------------------------------- #
@@ -151,24 +152,85 @@ class FakeS3Client:
 
 
 class FakeTtsProvider:
-    """Counts synthesis attempts so "generate never synthesizes" is provable.
+    """One fake, two jobs — and the default job is refusing to synthesize.
+
+    With no `chunks`, `synthesize_stream` raises: that is what makes "generate
+    never synthesizes" (T8) provable rather than assumed, and it is the shape
+    every phase-06 test uses. Hand it `chunks` and it becomes a scriptable
+    stream for the serving waterfall:
+
+    * `chunks` — the PCM it yields, one append per chunk;
+    * `fail_after` — raise once that many chunks have been yielded,
+      which is the mid-stream provider error §7.2.1's abort path exists for;
+    * `paced` — hold before every chunk until `release()` is called, so a test
+      can observe a reader receiving bytes *while* the buffer is still growing
+      instead of racing a completed generation.
 
     `ignored_fields` defaults to Gemini's real declaration so the common case
     under test is the shipped one; tests that care about a provider for which
     `lang_code` matters pass an empty set.
     """
 
-    def __init__(self, ignored_fields: frozenset[str] | None = None) -> None:
+    def __init__(
+        self,
+        ignored_fields: frozenset[str] | None = None,
+        *,
+        chunks: list[bytes] | None = None,
+        fail_after: int | None = None,
+        failure_type: type[Exception] = RuntimeError,
+        failure_message: str = "fake provider failed mid-stream",
+        paced: bool = False,
+        pcm: PcmFormat | None = None,
+    ) -> None:
         self.ignored_fields = (
             frozenset({"lang_code"}) if ignored_fields is None else ignored_fields
         )
         self.synthesize_calls: list[TtsProviderRequest] = []
+        self.chunks = chunks
+        self.fail_after = fail_after
+        # A *type* and a message, not a prepared exception instance: an
+        # exception that has been raised carries a `__traceback__`, and holding
+        # one on the fake would keep the failed generation's frames — and so
+        # its entry and its whole buffer — alive for the rest of the test.
+        # (Found the hard way: an accounting assertion failed because the fake,
+        # not the service, was pinning 30 MiB.)
+        self.failure_type = failure_type
+        self.failure_message = failure_message
+        self.paced = paced
+        self.pcm = pcm or PcmFormat(
+            sample_rate_hz=24000, channels=1, bits_per_sample=16
+        )
+        self._resume = asyncio.Event()
+        self._pending = 0
 
     def non_byte_affecting_fields(self) -> frozenset[str]:
         return self.ignored_fields
 
-    def synthesize_stream(self, request: TtsProviderRequest):
+    def pcm_format(self) -> PcmFormat:
+        return self.pcm
+
+    def release(self, count: int = 1) -> None:
+        """Let the paced stream emit its next chunk(s)."""
+        self._pending += count
+        self._resume.set()
+
+    async def synthesize_stream(self, request: TtsProviderRequest):
         self.synthesize_calls.append(request)
-        raise AssertionError(
-            "synthesize_stream must never be reached from generate (T8)"
-        )
+        if self.chunks is None:
+            raise AssertionError(
+                "synthesize_stream must never be reached from generate (T8)"
+            )
+        for index, chunk in enumerate(self.chunks):
+            if index == self.fail_after:
+                raise self.failure_type(self.failure_message)
+            if self.paced:
+                await self._await_release()
+            yield chunk
+        if len(self.chunks) == self.fail_after:
+            raise self.failure_type(self.failure_message)
+
+    async def _await_release(self) -> None:
+        while self._pending <= 0:
+            self._resume.clear()
+            await self._resume.wait()
+        self._pending -= 1

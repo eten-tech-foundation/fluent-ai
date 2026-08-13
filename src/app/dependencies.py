@@ -77,7 +77,11 @@ def get_tts_service() -> TtsService:
         _tts_service = TtsService(
             settings=settings,
             store=build_artifact_store(settings),
-            provider=GeminiTtsProvider(),
+            # The key is handed over, not read from settings inside the
+            # provider, and the SDK client is built on first synthesis: a
+            # deployment with no Google key still boots and still authorizes
+            # recipes, and only the generation task fails.
+            provider=GeminiTtsProvider(api_key=settings.google_ai_api_key),
         )
     return _tts_service
 

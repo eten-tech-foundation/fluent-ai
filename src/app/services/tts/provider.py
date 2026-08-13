@@ -14,6 +14,32 @@ from typing import Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
+class PcmFormat:
+    """The shape of the raw PCM a provider yields.
+
+    Three numbers, and they exist because the streaming WAV header has to be
+    written *before* the first audio byte arrives (§7.2.1) — time to first byte
+    is the whole point of streaming, so the header cannot wait to learn the
+    format from the stream. The provider therefore declares it up front, and is
+    responsible for aborting its own stream if what arrives disagrees (§8.2).
+
+    Provider-declared rather than configured on purpose: an env var here would
+    let an operator write a header that contradicts the bytes, which is exactly
+    the silent corruption the assertion is meant to catch. It is also what the
+    compression tail will need (`-f s16le -ar 24000 -ac 1`, §10.1).
+    """
+
+    sample_rate_hz: int
+    channels: int
+    bits_per_sample: int
+
+    @property
+    def byte_rate(self) -> int:
+        """Bytes of PCM per second — the WAV header field, and the sizing unit."""
+        return self.sample_rate_hz * self.channels * self.bits_per_sample // 8
+
+
+@dataclass(frozen=True)
 class TtsProviderRequest:
     """One synthesis request, already resolved against configuration.
 
@@ -50,11 +76,27 @@ class TtsProvider(Protocol):
         """
         ...
 
+    def pcm_format(self) -> PcmFormat:
+        """The PCM format `synthesize_stream` produces (§8.2).
+
+        A declaration, like `non_byte_affecting_fields()` above: the provider
+        states a property of itself and the layers above use it — here to write
+        the streaming WAV header before any audio exists. A provider must abort
+        its stream rather than yield bytes that contradict this.
+        """
+        ...
+
     def synthesize_stream(self, request: TtsProviderRequest) -> AsyncIterator[bytes]:
         """Yield raw PCM audio chunks as the provider produces them.
 
         Streaming rather than returning bytes is load-bearing: the first
         listener is served live from the growing buffer (§7.2.1), so time to
         first audio does not wait on the whole clip.
+
+        Raising is the only way to fail. Ending the iteration early would be
+        read as a complete (if short) clip and stored as one, which is the
+        silent corruption §7.2.1 exists to prevent — so a provider that detects
+        trouble mid-stream, including an error arriving *in-band* as an
+        ordinary iteration value, must raise rather than return.
         """
         ...

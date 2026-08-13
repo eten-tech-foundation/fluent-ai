@@ -238,6 +238,70 @@ class Settings(BaseSettings):
         ),
     )
 
+    # ----------------------------------------------------------------- #
+    # Source TTS — the generation heap's RAM budget (§9.2, T21/T25)
+    #
+    # These four numbers are one system, not four knobs: the admission gate
+    # holds ⌊budget / per-clip ceiling⌋ slots, each slot is a WORST-CASE byte
+    # reservation, and a request that cannot get one waits briefly and is then
+    # refused with 503 + Retry-After. Change the budget or the ceiling and the
+    # slot count moves with it.
+    # ----------------------------------------------------------------- #
+    tts_max_buffered_bytes: int = Field(
+        default=256 * 1024 * 1024,
+        description=(
+            "RAM ceiling for in-flight generation buffers (§9.2). 256 MiB ⇒ 8 "
+            "worst-case slots. Container memory should provide ~1.5x headroom "
+            "over this (ffmpeg subprocess, interpreter, fragmentation)."
+        ),
+    )
+    tts_max_clip_bytes: int = Field(
+        default=16_384 * 1920,
+        description=(
+            "Per-clip byte ceiling: one admission slot's worst-case reservation, "
+            "and the per-append tripwire that aborts a provider streaming past "
+            "its own limit. Derived, not guessed — Gemini's output_token_limit "
+            "(16384) x 1920 bytes per audio token (40 ms of 24 kHz mono 16-bit "
+            "PCM) = 30 MiB = the 655 s output cap §8.2 names."
+        ),
+    )
+    tts_admission_wait_seconds: float = Field(
+        default=3.0,
+        description=(
+            "How long a NEW generation waits for a slot before being refused "
+            "(§9.2). A short queue absorbs bursts; a long one would just hold "
+            "clients on a connection that is going to fail anyway."
+        ),
+    )
+    tts_retry_after_seconds: int = Field(
+        default=5,
+        description=(
+            "`Retry-After` value on an admission refusal. Slots are held for "
+            "seconds each (synthesis runs ~1.3x realtime on a verse), so this "
+            "is a realistic wait rather than a token value."
+        ),
+    )
+    tts_generation_max_seconds: float = Field(
+        default=900.0,
+        description=(
+            "Hard ceiling on one detached generation task. Not in the proposal: "
+            "without it a provider that connects and then never sends another "
+            "delta pins an admission slot forever, which is the one way the RAM "
+            "budget's 'slots are held for seconds each' argument can fail. Set "
+            "above the provider's 655 s output cap (synthesis runs ~1.3x "
+            "realtime), so it can only ever fire on a stall."
+        ),
+    )
+    tts_reader_max_seconds: float = Field(
+        default=900.0,
+        description=(
+            "Reader max-lifetime (§7.2.1): bounds how long one slow client can "
+            "pin a finished buffer and its admission slot. Deliberately above "
+            "the provider's own 655 s output ceiling, so a listener consuming a "
+            "maximum-length clip at realtime is never cut off."
+        ),
+    )
+
     @field_validator("tts_r2_prefix")
     @classmethod
     def _normalize_tts_r2_prefix(cls, value: str) -> str:
