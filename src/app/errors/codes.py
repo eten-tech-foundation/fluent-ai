@@ -79,6 +79,19 @@ class ErrorCode:
     TTS_TEXT_TOO_LONG = "TTS_TEXT_TOO_LONG"
     TTS_STORAGE_NOT_CONFIGURED = "TTS_STORAGE_NOT_CONFIGURED"
     TTS_STORAGE_ERROR = "TTS_STORAGE_ERROR"
+    # get-audio (§7.2): the waterfall's own answers.
+    #
+    # TTS_ARTIFACT_NOT_FOUND is the 404 rung and is *routine* — it means no
+    # request sidecar was ever written for this hash, and the client heals by
+    # re-calling generate and retrying (§7.2 rung 4), so it must stay
+    # distinguishable from a storage fault.
+    #
+    # TTS_BUSY is the admission refusal (§9.2) and is the only code that
+    # travels with a Retry-After header; a client that sees it waits and
+    # retries rather than reporting a failure.
+    TTS_ARTIFACT_NOT_FOUND = "TTS_ARTIFACT_NOT_FOUND"
+    TTS_BUSY = "TTS_BUSY"
+    TTS_PROVIDER_UNAVAILABLE = "TTS_PROVIDER_UNAVAILABLE"
 
     # ------------------------------------------------------------------ #
     # Internal (500)
