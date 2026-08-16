@@ -60,6 +60,22 @@ configures here:
 Five seconds sits inside the smaller of those with room to spare. If it is ever
 exceeded, the log line says so by name — that is a stuck provider stream, and it
 is worth reading rather than worth a bigger number.
+
+**This grace is third in line, which is why tuning it buys so little** (traced
+in uvicorn's `Server.shutdown`, reviewed with the operator 2026-08-16). On
+SIGTERM uvicorn stops accepting, asks live connections to close, and then waits
+for in-flight responses — bounded by `--timeout-graceful-shutdown`, which our
+Dockerfile sets to **30 s** — and only *afterwards* runs the lifespan shutdown
+that calls into here. A listener streaming a clip is one of those in-flight
+responses, so a deploy caught mid-generation spends up to 30 s in that drain
+**with the generation still running and still billing**, because the generation
+task is detached (`asyncio.create_task`, not one of uvicorn's) and nothing has
+cancelled it yet. Worst-case shutdown is therefore ~35 s, of which this constant
+is the last five. Two consequences worth knowing before changing anything here:
+the number that dominates deploy-time cost is the 30 s drain, not this one; and
+under Docker's default 10 s stop grace (or Kubernetes' default 30 s) the
+`SIGKILL` can land *before* this code ever runs. The platform's real kill
+timeout is still unknown — see B6/B7 in the harness notes.
 """
 
 
