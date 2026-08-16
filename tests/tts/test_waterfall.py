@@ -27,7 +27,12 @@ from app.services.tts.generation import GenerationFailed
 from app.services.tts.recipe import artifact_hash, build_recipe
 from app.services.tts.service import AudioRedirect, AudioStream, TtsService
 from app.services.tts.wav import WAV_HEADER_BYTES
-from tests.tts.fakes import FakeS3Client, FakeTtsProvider, tts_settings
+from tests.tts.fakes import (
+    FakeCompressor,
+    FakeS3Client,
+    FakeTtsProvider,
+    tts_settings,
+)
 
 
 PCM_CHUNK = b"\x01\x02" * 960
@@ -44,18 +49,48 @@ def provider() -> FakeTtsProvider:
 
 
 @pytest.fixture
+def compressor() -> FakeCompressor:
+    return FakeCompressor()
+
+
+@pytest.fixture
 def settings():
     return tts_settings(tts_admission_wait_seconds=0.05)
 
 
 @pytest.fixture
-def service(r2, provider, settings) -> TtsService:
+def service_without_tail(r2, provider, settings) -> TtsService:
+    """A service whose compression tail always fails.
+
+    Two rungs are only reachable when no compressed object exists, and since
+    phase 08 the tail uploads one on every completed generation — so the way
+    to reach them is a tail that could not produce the object (encoder down,
+    R2 refusing). Faking *that* keeps those tests about the waterfall while
+    also pinning the tail's failure contract: a clip stays attachable and
+    regenerable rather than becoming a 404.
+    """
+    return TtsService(
+        settings=settings,
+        store=TtsArtifactStore(
+            client=r2,  # type: ignore[arg-type] - fake with the same surface
+            bucket=settings.r2_tts_bucket or "bucket",
+            prefix=settings.tts_r2_prefix,
+        ),
+        provider=provider,
+        compressor=FakeCompressor(failure_type=RuntimeError),
+    )
+
+
+@pytest.fixture
+def service(r2, provider, settings, compressor) -> TtsService:
     store = TtsArtifactStore(
         client=r2,  # type: ignore[arg-type] - fake with the same call surface
         bucket=settings.r2_tts_bucket or "bucket",
         prefix=settings.tts_r2_prefix,
     )
-    return TtsService(settings=settings, store=store, provider=provider)
+    return TtsService(
+        settings=settings, store=store, provider=provider, compressor=compressor
+    )
 
 
 def authorize(r2, settings, provider, text: str = "In the beginning") -> str:
@@ -71,22 +106,52 @@ def authorize(r2, settings, provider, text: str = "In the beginning") -> str:
 
 
 def compress(r2, settings, digest: str, extension: str = "ogg") -> None:
-    """Stand in for phase 08's compression tail having finished."""
+    """Put a compressed object in R2 without running a generation.
+
+    Still useful after phase 08 built the real tail: several rungs need the
+    object to exist for a hash that this process never synthesized — which is
+    the ordinary case of another instance having done the work (§10.1).
+    """
     r2.objects[f"{settings.tts_r2_prefix}audio/{digest}.{extension}"] = {
         "body": b"compressed bytes",
         "content_type": "audio/ogg",
     }
 
 
+def audio_object(r2, settings, digest: str, extension: str = "ogg"):
+    """The stored compressed artifact for `digest`, or None."""
+    return r2.objects.get(f"{settings.tts_r2_prefix}audio/{digest}.{extension}")
+
+
 async def drain(stream: AudioStream) -> bytes:
     return b"".join([chunk async for chunk in stream.reader()])
+
+
+async def drain_and_settle(stream: AudioStream) -> bytes:
+    """Read the clip AND wait for its generation task to finish the tail.
+
+    Draining a reader is not the same event as the generation finishing. The
+    reader has every byte once `state` flips to `complete`, but the task then
+    runs the compression tail (§10.1) — HEAD, encode, conditional PUT, receipt
+    — and only *afterwards* moves the entry to the draining set. So a test that
+    stopped at the reader would be racing the upload it means to assert about.
+
+    Awaiting the task is the deterministic wait; a sleep would be a guess.
+    Captured before draining because the done-callback clears `entry.task` to
+    break the entry/traceback cycle (§8.3, N1).
+    """
+    task = stream.entry.task
+    data = await drain(stream)
+    if task is not None:
+        await asyncio.wait([task])
+    return data
 
 
 async def listen_once(service: TtsService, digest: str) -> None:
     """Play a clip to the end and leave no reference to its entry behind."""
     resolution = await service.resolve_audio(digest)
     assert isinstance(resolution, AudioStream)
-    await drain(resolution)
+    await drain_and_settle(resolution)
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +221,12 @@ class TestRungOrder:
         out."""
         settings = tts_settings(tts_public_audio_base_url=None)
         store = TtsArtifactStore(client=r2, bucket="b", prefix=settings.tts_r2_prefix)  # type: ignore[arg-type]
-        service = TtsService(settings=settings, store=store, provider=provider)
+        service = TtsService(
+            settings=settings,
+            store=store,
+            provider=provider,
+            compressor=FakeCompressor(),
+        )
         digest = authorize(r2, settings, provider)
         compress(r2, settings, digest)
 
@@ -174,14 +244,24 @@ class TestRungOrder:
 
 class TestDrainingSet:
     async def test_a_draining_entry_serves_attach_while_the_object_is_absent(
-        self, service, r2, settings, provider
+        self, service_without_tail, r2, settings, provider
     ):
         """§12.3: a finished-but-still-draining entry is a legitimate source
-        for a new listener — but only until the compressed object exists."""
+        for a new listener — but only until the compressed object exists.
+
+        **Staged through a failed tail, which is now the only way to reach
+        this state.** Before phase 08 nothing was ever uploaded, so "draining
+        with no compressed object" was simply what draining looked like; now
+        the tail uploads on the way out, and the object is absent exactly when
+        the tail could not produce it (encoder down, R2 refusing). So this also
+        pins the tail's failure contract: the clip stays *attachable* and
+        regenerable rather than becoming a 404.
+        """
+        service = service_without_tail
         digest = authorize(r2, settings, provider)
         first = await service.resolve_audio(digest)
         assert isinstance(first, AudioStream)
-        await drain(first)  # generation completes and the entry drains
+        await drain_and_settle(first)  # generation, then the (failing) tail
         assert service.heap.get(digest) is None
 
         second = await service.resolve_audio(digest)
@@ -194,12 +274,16 @@ class TestDrainingSet:
         self, service, r2, settings, provider
     ):
         """The 302 wins: R2 brings Range support, a Content-Length, edge
-        caching and about a tenth of the bytes."""
+        caching and about a tenth of the bytes.
+
+        No `compress()` stand-in any more: the tail this test used to fake is
+        built, so draining the first listen really does put the object in R2.
+        """
         digest = authorize(r2, settings, provider)
         first = await service.resolve_audio(digest)
         assert isinstance(first, AudioStream)
-        await drain(first)
-        compress(r2, settings, digest)
+        await drain_and_settle(first)
+        assert audio_object(r2, settings, digest) is not None
 
         second = await service.resolve_audio(digest)
 
@@ -207,16 +291,21 @@ class TestDrainingSet:
         assert service.heap.get_draining(digest) is first.entry  # still there
 
     async def test_a_drained_entry_with_no_readers_falls_through_to_regenerate(
-        self, service, r2, settings, provider
+        self, service_without_tail, r2, settings, provider
     ):
         """The draining set holds entries weakly, so 'still draining' means
         'someone is still listening' and nothing else.
+
+        Staged with a failing tail for the same reason as the test above: with
+        a working one the second listen would get the 302, which is a different
+        rung and already covered.
 
         The listen happens inside a helper so that *nothing* in this frame
         references the entry afterwards — pytest rewrites assertions into
         temporaries that outlive a `del`, which is enough to keep an entry
         alive and quietly turn this into a test of pytest's internals.
         """
+        service = service_without_tail
         digest = authorize(r2, settings, provider)
         await listen_once(service, digest)
 
@@ -228,7 +317,7 @@ class TestDrainingSet:
         assert isinstance(second, AudioStream)
         # Drained, not just resolved: `synthesize_stream` is an async generator,
         # so the provider is not touched until the task pulls its first chunk.
-        assert await drain(second) == second.header + PCM_CHUNK * 2
+        assert await drain_and_settle(second) == second.header + PCM_CHUNK * 2
         assert len(provider.synthesize_calls) == 2
 
 
@@ -372,7 +461,7 @@ class TestFailure:
         second = await service.resolve_audio(digest)
 
         assert isinstance(second, AudioStream)
-        assert await drain(second) == second.header + PCM_CHUNK * 2
+        assert await drain_and_settle(second) == second.header + PCM_CHUNK * 2
         assert len(provider.synthesize_calls) == 2
 
     async def test_a_stream_over_the_per_clip_ceiling_aborts(
@@ -386,7 +475,12 @@ class TestFailure:
         where `TTS_TEXT_TOO_LONG` means `generate` refused before any spend."""
         settings = tts_settings(tts_max_clip_bytes=len(PCM_CHUNK) + 1)
         store = TtsArtifactStore(client=r2, bucket="b", prefix=settings.tts_r2_prefix)  # type: ignore[arg-type]
-        service = TtsService(settings=settings, store=store, provider=provider)
+        service = TtsService(
+            settings=settings,
+            store=store,
+            provider=provider,
+            compressor=FakeCompressor(),
+        )
         digest = authorize(r2, settings, provider)
 
         resolution = await service.resolve_audio(digest)

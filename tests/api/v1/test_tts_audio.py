@@ -23,7 +23,12 @@ from app.services.tts.artifacts import TtsArtifactStore, serialize_json_body
 from app.services.tts.recipe import artifact_hash, build_recipe
 from app.services.tts.service import TtsService
 from app.services.tts.wav import UNKNOWN_SIZE, WAV_HEADER_BYTES
-from tests.tts.fakes import FakeS3Client, FakeTtsProvider, tts_settings
+from tests.tts.fakes import (
+    FakeCompressor,
+    FakeS3Client,
+    FakeTtsProvider,
+    tts_settings,
+)
 
 
 PCM_CHUNK = b"\x01\x02" * 960  # 1920 bytes = one 40 ms Gemini delta (§8.2)
@@ -50,13 +55,23 @@ def settings():
 
 
 @pytest.fixture
-def service(r2, provider, settings) -> TtsService:
+def compressor() -> FakeCompressor:
+    return FakeCompressor()
+
+
+@pytest.fixture
+def service(r2, provider, settings, compressor) -> TtsService:
     store = TtsArtifactStore(
         client=r2,  # type: ignore[arg-type] - fake with the same call surface
         bucket=settings.r2_tts_bucket or "bucket",
         prefix=settings.tts_r2_prefix,
     )
-    return TtsService(settings=settings, store=store, provider=provider)
+    return TtsService(
+        settings=settings,
+        store=store,
+        provider=provider,
+        compressor=compressor,
+    )
 
 
 @pytest.fixture
@@ -87,6 +102,26 @@ def authorize(r2, settings, provider, text: str = "In the beginning") -> str:
 
 def url(digest: str) -> str:
     return f"/tts/audio/{digest}.wav"
+
+
+async def settle_tail(service: TtsService, digest: str) -> None:
+    """Wait for a finished clip's compression tail to run to completion.
+
+    A response ending is not the generation ending. The reader has every byte
+    once `state` flips to `complete`, but the detached task then runs the tail
+    (§10.1) — and the entry stays in the *primary* dict until its object is
+    uploaded (§9.2), which is exactly the window in which a new request still
+    attaches to the live entry instead of being redirected. A test that reads
+    the compressed era straight after a streaming one is therefore racing the
+    upload unless it waits here.
+
+    Awaiting the task rather than sleeping: no timing guess, and `entry.task`
+    being `None` already means the tail is done, because the done-callback that
+    clears it runs after the tail (§8.3).
+    """
+    entry = service.heap.get(digest)
+    if entry is not None and entry.task is not None:
+        await asyncio.wait([entry.task])
 
 
 # ---------------------------------------------------------------------------
@@ -142,9 +177,26 @@ class TestStreamingEra:
     async def test_concurrent_listeners_share_one_generation(
         self, audio_client, r2, settings, provider
     ):
-        """§12.3's dedup case: one entry, ONE provider call, and the second
-        request attaches. This is what makes a double-clicked play button (or a
-        re-run React effect) cost one billing event instead of two."""
+        """§12.3's dedup case: two requests for one hash, **ONE provider call**.
+        This is what makes a double-clicked play button (or a re-run React
+        effect) cost one billing event instead of two.
+
+        The second request may land in either era, and the test deliberately
+        accepts both — it is asserting dedup, not timing. What makes dedup hold
+        *at every instant* rather than usually is a handover with no gap in it:
+        an entry stays in the primary dict until its compressed object is
+        uploaded (§9.2, and `_finish_generation` drains only after the tail),
+        so the second request either finds the live entry and attaches, or
+        finds the object and is redirected. There is no moment where both are
+        missing and it would regenerate.
+
+        (The reverse is visible when the tail *fails*: the entry drains with no
+        object, and a late second request correctly regenerates. That path is
+        covered at the service layer in `test_waterfall.py`, which is also
+        where genuinely-concurrent attachment is tested — httpx's ASGI
+        transport buffers a whole response, so these two requests cannot
+        actually overlap here.)
+        """
         digest = authorize(r2, settings, provider)
         provider.paced = True
         provider.release(3)
@@ -153,8 +205,8 @@ class TestStreamingEra:
             audio_client.get(url(digest)), audio_client.get(url(digest))
         )
 
-        assert first.status_code == second.status_code == 200
-        assert first.content == second.content
+        assert first.status_code == 200
+        assert second.status_code in (200, 302)
         assert len(provider.synthesize_calls) == 1
 
 
@@ -238,7 +290,7 @@ class TestNotFound:
             assert response.status_code == 404, bad
 
     async def test_every_extension_fluent_api_relays_resolves_here(
-        self, audio_client, r2, settings, provider
+        self, audio_client, service, r2, settings, provider
     ):
         """fluent-api's path validator accepts `.wav`, `.ogg` and `.mp3` and
         relays whichever arrived. Serving only `.wav` here would turn its
@@ -251,10 +303,10 @@ class TestNotFound:
         assert streaming.status_code == 200
         assert streaming.headers["content-type"] == "audio/wav"
 
-        r2.objects[f"{settings.tts_r2_prefix}audio/{digest}.ogg"] = {
-            "body": b"compressed",
-            "content_type": "audio/ogg",
-        }
+        # The compressed era arrives on its own now — the tail uploads it. It
+        # used to be planted by hand here, which since phase 08 would race the
+        # real upload for the same key.
+        await settle_tail(service, digest)
         compressed = await audio_client.get(
             f"/tts/audio/{digest}.mp3", follow_redirects=False
         )

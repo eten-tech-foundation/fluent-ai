@@ -21,7 +21,12 @@ from app.schemas.tts import TtsGenerateRequest
 from app.services.tts.artifacts import TtsArtifactStore, build_artifact_store
 from app.services.tts.recipe import artifact_hash, build_recipe
 from app.services.tts.service import TtsService
-from tests.tts.fakes import FakeS3Client, FakeTtsProvider, tts_settings
+from tests.tts.fakes import (
+    FakeCompressor,
+    FakeS3Client,
+    FakeTtsProvider,
+    tts_settings,
+)
 
 
 ENDPOINT = "/tts/generate"
@@ -69,7 +74,12 @@ def service(r2, provider, settings) -> TtsService:
         bucket=settings.r2_tts_bucket or "bucket",
         prefix=settings.tts_r2_prefix,
     )
-    return TtsService(settings=settings, store=store, provider=provider)
+    return TtsService(
+        settings=settings,
+        store=store,
+        provider=provider,
+        compressor=FakeCompressor(),
+    )
 
 
 @pytest.fixture
@@ -275,6 +285,7 @@ class TestAuthAndConfiguration:
                 settings=settings,
                 store=build_artifact_store(settings),
                 provider=FakeTtsProvider(),
+                compressor=FakeCompressor(),
             )
 
         app.dependency_overrides[require_api_key] = lambda: fake_api_key

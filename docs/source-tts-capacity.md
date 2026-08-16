@@ -125,3 +125,38 @@ raising `TTS_MAX_TEXT_LENGTH` (with the ceiling, per the inequality above) is th
 consistent pair this should be unreachable, so seeing it means either the bytes-per-character rate is
 wrong for this corpus's script, or the provider is emitting audio nobody asked for. It is the alarm
 attached to the assumption most likely to be wrong; keep the two codes distinct.
+
+## What the compression tail costs on top (phase 08)
+
+The numbers above account for the **generation heap** — the raw PCM a clip occupies while it is being
+synthesized and streamed. The compression tail adds a second, smaller consumer that the container's
+memory limit has to cover as well:
+
+- **One ffmpeg subprocess per encode**, bounded by `TTS_FFMPEG_CONCURRENCY` (default **1**, which is
+  why the addition is small and flat). A verse-sized encode runs far faster than realtime, so
+  serializing them costs almost nothing; raise it only if compression is ever observed to be the
+  bottleneck.
+- **A transient copy of the finished clip.** The tail hands the encoder a `bytes` copy of the buffer
+  and receives the compressed container back, so a clip briefly exists three times over: the live
+  buffer (still being read by any attached listener), the copy on the pipe, and the encoded result.
+  The encoded result is roughly a tenth of the PCM and the copy is released as soon as the encode
+  returns, so the peak addition is about **one clip's PCM per concurrent encode** — not one per
+  admission slot.
+
+None of this is charged against `TTS_MAX_BUFFERED_BYTES`, which counts generation buffers only. It is
+part of what §8.4's "roughly ×1.5 headroom over the budget" is for, and one more reason the container
+limit (**B8**, still unanswered) is the number worth getting.
+
+## Why the encoder ships in the wheel
+
+`imageio-ffmpeg` is an ordinary dependency that carries a static ffmpeg binary, so encoding assumes
+nothing about what the container image provides — no `apt-get` layer, no base-image coupling, and the
+same binary in dev and production. `TTS_FFMPEG_BINARY` overrides it if a deployment must supply its
+own build.
+
+Two properties of that binary are worth knowing before the packaging question (**B5**) is settled:
+it is built `--enable-gpl --enable-version3`, and it adds about **77 MB** to the image. Invoking it as
+a subprocess rather than linking it is the ordinary way to use ffmpeg without the GPL reaching this
+service's own source, but the image does then distribute GPL software. If either fact turns out to be
+unacceptable, the swap is one class in `services/tts/compression.py` — which is why the encoder sits
+behind a two-method seam rather than being called inline.

@@ -17,7 +17,12 @@ from app.schemas.tts import TtsGenerateRequest
 from app.services.tts.artifacts import TtsArtifactStore
 from app.services.tts.recipe import build_recipe
 from app.services.tts.service import TtsService
-from tests.tts.fakes import FakeS3Client, FakeTtsProvider, tts_settings
+from tests.tts.fakes import (
+    FakeCompressor,
+    FakeS3Client,
+    FakeTtsProvider,
+    tts_settings,
+)
 
 
 HASH = "b" * 64
@@ -36,7 +41,12 @@ def service(r2) -> TtsService:
         bucket="fluent-tts-test",
         prefix=settings.tts_r2_prefix,
     )
-    return TtsService(settings=settings, store=store, provider=FakeTtsProvider())
+    return TtsService(
+        settings=settings,
+        store=store,
+        provider=FakeTtsProvider(),
+        compressor=FakeCompressor(),
+    )
 
 
 def a_recipe(**overrides):
@@ -142,7 +152,12 @@ class TestLimitPairing:
         )
 
         with caplog.at_level(logging.WARNING):
-            TtsService(settings=settings, store=store, provider=FakeTtsProvider())
+            TtsService(
+                settings=settings,
+                store=store,
+                provider=FakeTtsProvider(),
+                compressor=FakeCompressor(),
+            )
 
         assert "abort mid-stream" in caplog.text
 
@@ -155,6 +170,11 @@ class TestLimitPairing:
         )
 
         with caplog.at_level(logging.WARNING):
-            TtsService(settings=settings, store=store, provider=FakeTtsProvider())
+            TtsService(
+                settings=settings,
+                store=store,
+                provider=FakeTtsProvider(),
+                compressor=FakeCompressor(),
+            )
 
         assert "abort mid-stream" not in caplog.text

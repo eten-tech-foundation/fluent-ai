@@ -106,6 +106,20 @@ ENTRYPOINT ["dumb-init", "--"]
 #   --workers                   horizontal scaling is done by the orchestrator
 #   --timeout-graceful-shutdown give in-flight requests time to finish on SIGTERM
 #
+# ⚠ `--workers 1` IS A HARD REQUIREMENT, NOT A DEFAULT (source-tts T26, §10.1).
+# It was already 1 for its own reasons; TTS makes it load-bearing. The audio
+# generation heap is per-process state, so a second worker would (a) really use
+# a second whole `TTS_MAX_BUFFERED_BYTES` against one container memory limit,
+# and (b) split dedup across two dicts that cannot see each other — the same
+# verse synthesized and billed twice, which is precisely what the heap exists to
+# prevent. Neither shows up as an error: the first is an OOM under load, the
+# second a quietly doubled provider bill.
+#
+# `--timeout-graceful-shutdown 30` also interacts with TTS: uvicorn runs the
+# lifespan shutdown (which cancels in-flight generations) only AFTER this drain,
+# so a deploy that catches a clip mid-generation can spend up to this long still
+# synthesizing. See SHUTDOWN_GRACE_SECONDS in services/tts/generation.py.
+#
 # Database migrations and seeds are run out-of-band by CI/CD, NOT on container
 # start. See AGENTS.md §Database Ownership and your deploy pipeline.
 CMD ["uvicorn", "app.main:app", \

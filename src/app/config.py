@@ -353,6 +353,32 @@ class Settings(BaseSettings):
             "maximum-length clip at realtime is never cut off."
         ),
     )
+    tts_ffmpeg_concurrency: int = Field(
+        default=1,
+        ge=1,
+        description=(
+            "Concurrent compression tails (§10.1). Recommended, not "
+            "load-bearing: a verse-sized encode runs in well under a second "
+            "(measured ~100x realtime), so serializing them costs almost "
+            "nothing and keeps worst-case CPU and RSS flat — which matters "
+            "because the encode runs alongside the generation buffers the RAM "
+            "budget is already accounting for. Raise it only if compression is "
+            "ever observed to be the bottleneck, which would mean clips are "
+            "finishing faster than one core can encode them."
+        ),
+    )
+    tts_ffmpeg_binary: str | None = Field(
+        default=None,
+        description=(
+            "Path to the ffmpeg executable. Unset (the default) resolves the "
+            "static binary shipped by the `imageio-ffmpeg` wheel, so the "
+            "encoder needs nothing from the container image (§10.2); a value "
+            "here overrides that. It exists because the bundled build is GPL "
+            "(`--enable-gpl`) and ~77 MB — if either turns out to be "
+            "unacceptable, a deployment can point at its own build without a "
+            "code change while B5 is settled."
+        ),
+    )
 
     @field_validator("tts_r2_prefix")
     @classmethod

@@ -45,6 +45,7 @@ from app.services.tts.artifacts import (
     TtsArtifactStore,
     serialize_json_body,
 )
+from app.services.tts.compression import Compressor, FfmpegCompressor
 from app.services.tts.generation import GenerationEntry, GenerationHeap
 from app.services.tts.provider import TtsProviderRequest
 from app.services.tts.recipe import TtsRecipe, artifact_hash, build_recipe
@@ -109,10 +110,18 @@ class TtsService:
         settings: "Settings",
         store: TtsArtifactStore,
         provider: "TtsProvider",
+        compressor: "Compressor | None" = None,
     ) -> None:
         self._settings = settings
         self._store = store
         self._provider = provider
+        # Injectable so the tail's tests never spawn a subprocess, and so B5's
+        # answer (bundled binary vs the shared transcode container) swaps one
+        # object rather than editing this class — see compression.py.
+        self._compressor = compressor or FfmpegCompressor(
+            concurrency=settings.tts_ffmpeg_concurrency,
+            binary=settings.tts_ffmpeg_binary,
+        )
         # Per-process state, which is why fluent-ai must run a single
         # application process (T26, §10.1): with `workers=2` the container
         # really uses twice `TTS_MAX_BUFFERED_BYTES`, and dedup splits across
@@ -376,19 +385,94 @@ class TtsService:
     async def _finish_generation(self, entry: GenerationEntry) -> None:
         """Run the completed clip's tail, then hand the entry to the drain set.
 
-        **Phase 08 lands the compression tail here** (§10.1): HEAD the target
-        object, pipe the buffer through ffmpeg, conditional-PUT the audio, then
-        the receipt. Until it does, nothing is ever uploaded, so a second listen
-        after this entry drains regenerates from the sidecar — correct, and
-        billed twice. That is the known cost of splitting the phases, not a bug
-        to work around here.
+        The compression tail (§10.1), in its required order: HEAD the target
+        object, transcode the buffer, conditional-PUT the audio, write the
+        receipt last. Readers keep streaming from the buffer throughout — this
+        runs *after* `state` flipped to `complete`, so nobody is waiting on it.
+
+        **The tail never fails the clip.** Every listener attached to this
+        entry has already heard the whole verse from the buffer; the only thing
+        a failure here costs is durability, and the request sidecar means the
+        next `get-audio` regenerates (§7.2 rung 4) rather than 404s. So errors
+        are logged and swallowed, and the entry drains either way — raising
+        would mark a *completed* generation failed, and the done-callback would
+        report a clip that actually worked as an error.
         """
-        self._heap.drain(entry)
+        try:
+            await self._compress_and_upload(entry)
+        except Exception as exc:
+            # Deliberately broad: see the docstring. A tail failure is a cost
+            # (this clip gets regenerated next time), never a correctness
+            # problem, and it must not take the entry's teardown with it.
+            logger.warning(
+                "tts compression tail failed; clip stays regenerable",
+                artifact_hash=entry.artifact,
+                reason=_failure_reason(exc),
+            )
+        finally:
+            self._heap.drain(entry)
+
         logger.info(
             "tts generation complete",
             artifact_hash=entry.artifact,
             size_bytes=len(entry.buffer),
             buffered_bytes=self._heap.buffered_bytes,
+        )
+
+    async def _compress_and_upload(self, entry: GenerationEntry) -> None:
+        """HEAD, transcode, conditional-PUT, receipt (§10.1 steps 2-4)."""
+        recipe = entry.recipe
+        key = self.audio_key(entry.artifact, recipe.format)
+
+        # Step 2. Another instance may already have uploaded this artifact —
+        # duplicate generations are expected whenever instance topology does
+        # not pin one hash to one process (B6, §10.1). Skipping the encode is
+        # the cheap half of that; the conditional PUT below is the correct half.
+        if await self._store.head(key) is not None:
+            logger.info(
+                "tts compression skipped; artifact already uploaded",
+                artifact_hash=entry.artifact,
+                key=key,
+            )
+            return
+
+        # Step 3. `bytes(entry.buffer)` copies once, on purpose: the buffer is
+        # a live object that readers are still iterating, and handing it to a
+        # subprocess transport that may retain it would extend the admission
+        # slot's lifetime past the last reader (§9.2 accounting is by refcount).
+        clip = await self._compressor.compress(
+            bytes(entry.buffer),
+            pcm_format=self._provider.pcm_format(),
+            target_format=recipe.format,
+        )
+
+        # Step 4. First writer wins. A conflict means a concurrent generation
+        # elsewhere stored its own render first — that is success, not an
+        # error: both renders are valid readings of the same recipe (§9.1), and
+        # this instance's readers simply finish hearing the one they started.
+        # It is a storage-dedup guard, not an anti-double-billing guard (CB4):
+        # the money was already spent by the time we get here.
+        stored = await self._store.put_if_absent(
+            key, clip.data, content_type=clip.content_type
+        )
+        logger.info(
+            "tts compression tail uploaded" if stored else "tts compression tail lost",
+            artifact_hash=entry.artifact,
+            key=key,
+            pcm_bytes=len(entry.buffer),
+            compressed_bytes=len(clip.data),
+            duration_ms=clip.duration_ms,
+            first_writer=stored,
+        )
+
+        # The receipt is last and best-effort by contract (§9.3): the audio
+        # object's presence is the commit, so a crash between the two leaves a
+        # perfectly playable clip. `write_receipt` swallows its own failures.
+        await self.write_receipt(
+            entry.artifact,
+            recipe=recipe,
+            duration_ms=clip.duration_ms,
+            size_bytes=len(clip.data),
         )
 
     async def shutdown(self) -> None:

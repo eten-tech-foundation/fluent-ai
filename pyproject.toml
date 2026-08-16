@@ -15,6 +15,11 @@ dependencies = [
     "google-genai>=2.0.0",
     "greekroom>=0.0.20",
     "boto3>=1.43.68",
+    # TTS compression tail (proposal S10.2). Ships a static ffmpeg binary as an
+    # ordinary wheel, so encoding makes no assumption about what the container
+    # provisions and needs no image change. See services/tts/compression.py for
+    # how it is resolved and what to do if this dependency is ever dropped.
+    "imageio-ffmpeg>=0.6.0",
 ]
 
 [dependency-groups]
@@ -44,5 +49,7 @@ python_version = "3.14"
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
-module = ["asyncpg", "greekroom", "greekroom.*"]
+# imageio_ffmpeg ships no py.typed marker; it is used for exactly one
+# call (`get_ffmpeg_exe()`), whose result is checked at the use site.
+module = ["asyncpg", "greekroom", "greekroom.*", "imageio_ffmpeg"]
 ignore_missing_imports = true

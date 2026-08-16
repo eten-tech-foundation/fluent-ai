@@ -17,6 +17,7 @@ from typing import Any
 from botocore.exceptions import ClientError
 
 from app.config import MAX_TEXT_CHARS, Settings, get_settings
+from app.services.tts.compression import CompressedClip
 from app.services.tts.provider import PcmFormat, TtsProviderRequest
 
 
@@ -236,3 +237,60 @@ class FakeTtsProvider:
             self._resume.clear()
             await self._resume.wait()
         self._pending -= 1
+
+
+# --------------------------------------------------------------------------- #
+# Fake compressor (the ffmpeg seam)
+# --------------------------------------------------------------------------- #
+
+
+class FakeCompressor:
+    """The compression tail's encoder, without a subprocess.
+
+    Every service-level test gets one of these, and that is deliberate: the
+    tail runs on *every* completed generation, so a suite that used the real
+    `FfmpegCompressor` would spawn an ffmpeg per finished clip — slow, and it
+    would make unrelated waterfall tests depend on a binary being installed.
+    The real encoder is exercised directly in `test_compression.py`.
+
+    `calls` is what the "HEAD-present skips the encode" test asserts against:
+    the claim is that ffmpeg is never *reached*, and an empty list is the only
+    honest way to show it.
+    """
+
+    def __init__(
+        self,
+        *,
+        data: bytes = b"OggS-fake-compressed",
+        duration_ms: int | None = 1500,
+        content_type: str = "audio/ogg",
+        failure_type: type[Exception] | None = None,
+        failure_message: str = "fake compressor failed",
+    ) -> None:
+        self.data = data
+        self.duration_ms = duration_ms
+        self.content_type = content_type
+        # A type and a message, never a prepared exception instance — the same
+        # rule as `FakeTtsProvider`, and for the same reason, re-learned here:
+        # a raised exception's `__traceback__` chains the tail's frames, which
+        # hold `entry` as a local, so a fake storing one keeps the whole entry
+        # (and its buffer, and its admission slot) alive for the rest of the
+        # test. It reads as a leak in the service and is not one.
+        self.failure_type = failure_type
+        self.failure_message = failure_message
+        self.calls: list[tuple[int, PcmFormat, str]] = []
+
+    async def compress(
+        self, pcm: bytes, *, pcm_format: PcmFormat, target_format: str
+    ) -> CompressedClip:
+        # The PCM's *length* rather than the bytes: holding the buffer's
+        # contents here would pin the very allocation the accounting tests
+        # measure (§9.2 is refcount-exact).
+        self.calls.append((len(pcm), pcm_format, target_format))
+        if self.failure_type is not None:
+            raise self.failure_type(self.failure_message)
+        return CompressedClip(
+            data=self.data,
+            duration_ms=self.duration_ms,
+            content_type=self.content_type,
+        )
