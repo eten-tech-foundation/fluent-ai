@@ -74,9 +74,11 @@ class GenerationBuffer(bytearray):
     bytes per buffer, and keeps every `bytearray` operation the writer and the
     readers use.
 
-    Do not give this class `__slots__` — that would suppress `__weakref__`
-    again and silently take the accounting back to whenever the GC feels like
-    it.
+    Do not give this class `__slots__` — an empty-bodied subclass is exactly
+    the shape someone "tidies up" that way, and it suppresses `__weakref__`
+    again, which takes `weakref.finalize` back to the same `TypeError` a plain
+    `bytearray` raises. That failure is loud and immediate (the first
+    generation dies), not a quiet drift back to GC-timed accounting.
     """
 
 

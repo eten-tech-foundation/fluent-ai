@@ -27,52 +27,46 @@ def _get_app_version() -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Source-TTS sizing — the derivation behind the byte defaults further down
+# Source-TTS sizing
 #
-# The per-clip ceiling is derived from *the product*, not from the provider.
-# What this service synthesizes is one verse (§7.1; pericope display plays its
-# verses one at a time), so the largest legitimate clip is the longest verse —
-# and the numbers below are measurements, not estimates:
+# Full evidence, the knob table, and how to size for a given container:
+#   docs/source-tts-capacity.md   <- read that before changing anything here
 #
-# * **Characters.** The 31,104 real verses in the project corpus have a median
-#   of 110 characters and a maximum of 436. The longest verse in the Bible,
-#   Esther 8:9, is ~528 characters in English. 550 is the round number above
-#   both, and it is a per-*verse* bound, not a per-request one.
-# * **Bytes per character.** Measured on a real Gemini clip: 54 characters
-#   produced 4.56 s of audio (114 deltas x 40 ms), i.e. ~12 characters per
-#   second, and 24 kHz mono 16-bit PCM is 48,000 bytes per second. That is
-#   ~4,000 bytes of PCM per character of text.
-#
-# Caveats worth keeping, because the multiplier is what absorbs them: the rate
-# was measured on one English clip, and characters are not equally spoken across
-# scripts (the corpus above is Gujarati, an abugida). Re-measure across a long
-# verse and a non-Latin script before treating any of this as precise.
+# The short version. These are one dial, not three: the text limit fixes the
+# clip ceiling (below), the ceiling divides the RAM budget into admission slots,
+# and the inequality `text limit x bytes-per-char <= ceiling` must hold or an
+# oversized text is billed and killed mid-stream instead of refused for free.
+# `TtsService` warns at boot if an override breaks it.
 # --------------------------------------------------------------------------- #
 
-LONGEST_VERSE_CHARS = 550
 PCM_BYTES_PER_CHARACTER = 4_000
-LONGEST_VERSE_BYTES = LONGEST_VERSE_CHARS * PCM_BYTES_PER_CHARACTER  # ~2.2 MB
-CLIP_CEILING_VERSE_MULTIPLE = 4
-"""Safety factor on the largest thing this service will speak (operator
-decision, 2026-08-13).
+"""PCM bytes one character of text becomes, measured on a real Gemini clip.
 
-Four times the longest verse — so a legitimate clip can never reach the limit,
-and anything that does is either a text far past verse-sized or a provider
-streaming audio nobody asked for. Both get stopped, and both are worth an error
-rather than three minutes of RAM.
+54 characters produced 4.56 s of audio (114 deltas x 40 ms) and 24 kHz mono
+16-bit PCM is 48,000 B/s, so ~12 characters per second. **One English clip** —
+see the capacity doc, since scripts differ and this is the shakiest input here.
 """
 
-# The same bound, expressed in the two units the service enforces it in: one
-# refuses input at `generate`, the other kills a generation that outgrows it.
-# **They are derived from one number on purpose.** Left independent they drift,
-# and the failure is silent and expensive: a text that passes the character
-# check but exceeds the byte ceiling is accepted, billed, synthesized for
-# minutes, and only *then* killed mid-stream — where a consistent pair refuses
-# it up front for free (operator decision, 2026-08-13). Both remain overridable
-# per-deployment; `TtsService` logs a warning at build time if an override
-# reintroduces the gap.
-MAX_TEXT_CHARS = CLIP_CEILING_VERSE_MULTIPLE * LONGEST_VERSE_CHARS  # 2,200
-MAX_CLIP_BYTES = MAX_TEXT_CHARS * PCM_BYTES_PER_CHARACTER  # 8.8 MB, ~183 s
+CORPUS_LONGEST_VERSE_CHARS = 6_504
+"""The longest single verse measured across the eBible corpus (2026-08-16).
+
+1,005 translations, 11,227,230 verses. Not an estimate and not an artifact:
+1KI 12:24 carries the Septuagint's long addition as one verse in LXX-based
+English Bibles. Recorded because it is what `MAX_TEXT_CHARS` would have to be
+for zero refusals; the survey script lives in the harness repo.
+"""
+
+MAX_TEXT_CHARS = 4_000
+"""Longest text this service will speak (operator decision, 2026-08-16).
+
+A point chosen on the coverage curve, not a safety multiple: it refuses 12 of
+11,227,230 real verses (~1 in 936,000), all Septuagint mega-additions in a few
+English study Bibles, and costs 16 admission slots at a 256 MiB budget. The
+capacity doc has the whole curve and the RAM arithmetic for other points.
+"""
+
+MAX_CLIP_BYTES = MAX_TEXT_CHARS * PCM_BYTES_PER_CHARACTER  # 16 MB, ~333 s
+"""Derived from `MAX_TEXT_CHARS` on purpose — see the inequality above."""
 
 
 class Settings(BaseSettings):
@@ -279,15 +273,13 @@ class Settings(BaseSettings):
     tts_max_text_length: int = Field(
         default=MAX_TEXT_CHARS,
         description=(
-            "Longest text this service will speak, in characters: 4x the longest "
-            "verse (see the sizing block above), i.e. 20x the corpus median. "
-            "Legitimate input is verse-sized (§7.1). Paired with "
-            "TTS_MAX_CLIP_BYTES — the same bound in bytes — so an oversized "
-            "text is refused here, before any provider call and any billing, "
-            "rather than being killed mid-stream once its audio outgrows the "
-            "clip ceiling. This service is the SOLE authority on the limit "
-            "(T27): fluent-api is a passive proxy that validates shape only and "
-            "holds no copy of this number, so there is no second value to drift."
+            "Longest text this service will speak, in characters. Refusal here "
+            "precedes any provider call, so an oversized text costs nothing; "
+            "raise it only together with TTS_MAX_CLIP_BYTES (docs/"
+            "source-tts-capacity.md has the curve and the RAM arithmetic). "
+            "This service is the SOLE authority on the limit (T27): fluent-api "
+            "is a passive proxy that validates shape only and holds no copy of "
+            "this number, so there is no second value to drift."
         ),
     )
 
@@ -303,23 +295,22 @@ class Settings(BaseSettings):
     tts_max_buffered_bytes: int = Field(
         default=256 * 1024 * 1024,
         description=(
-            "RAM ceiling for in-flight generation buffers (§9.2). 256 MiB ⇒ 30 "
-            "worst-case slots. Container memory should provide ~1.5x headroom "
-            "over this (ffmpeg subprocess, interpreter, fragmentation)."
+            "RAM ceiling for in-flight generation buffers (§9.2). Slots = this "
+            "divided by TTS_MAX_CLIP_BYTES, so RAISING THIS IS THE CHEAP WAY TO "
+            "BUY CONCURRENCY — it costs no verse coverage, where lowering the "
+            "ceiling does. Container memory wants ~1.5x headroom over it "
+            "(ffmpeg subprocess, interpreter, fragmentation). Sizing table: "
+            "docs/source-tts-capacity.md."
         ),
     )
     tts_max_clip_bytes: int = Field(
         default=MAX_CLIP_BYTES,
         description=(
-            "Per-clip byte ceiling: one admission slot's reservation, and the "
-            "per-append tripwire that kills a generation growing past it. "
-            "Derived from the product, not the provider — 4x the longest verse "
-            "(see the sizing block above) = 8.8 MB = ~183 s of audio, which is "
-            "5x the longest verse in the corpus and 20x the median one. "
-            "Gemini's own "
-            "output cap (16384 tokens x 1920 bytes = 30 MiB, 655 s) is 3.4x "
-            "higher and made a poor tripwire: a provider had to stream eleven "
-            "minutes of audio for one verse before anything noticed."
+            "Per-clip byte ceiling: one admission slot's worst-case "
+            "reservation, and the per-append tripwire that kills a generation "
+            "growing past it. Derived from TTS_MAX_TEXT_LENGTH — lowering it "
+            "alone reopens the billed-mid-stream gap the boot check warns "
+            "about. Sizing table: docs/source-tts-capacity.md."
         ),
     )
     tts_admission_wait_seconds: float = Field(
@@ -338,15 +329,19 @@ class Settings(BaseSettings):
             "is a realistic wait rather than a token value."
         ),
     )
-    tts_generation_max_seconds: float = Field(
+    tts_generation_timeout_seconds: float = Field(
         default=900.0,
         description=(
-            "Hard ceiling on one detached generation task. Not in the proposal: "
-            "without it a provider that connects and then never sends another "
-            "delta pins an admission slot forever, which is the one way the RAM "
-            "budget's 'slots are held for seconds each' argument can fail. Set "
-            "above the provider's 655 s output cap (synthesis runs ~1.3x "
-            "realtime), so it can only ever fire on a stall."
+            "Stall timeout on one detached generation task — NOT a limit on "
+            "clip length (TTS_MAX_CLIP_BYTES is that). Without it, a provider "
+            "that connects and then never sends another delta pins an "
+            "admission slot forever: the task is neither failing nor "
+            "finishing, so nothing releases the reservation, and the RAM "
+            "budget's 'slots are held for seconds each' argument silently "
+            "stops being true. Set above the provider's 655 s output cap "
+            "(synthesis runs ~1.3x realtime), so it can only ever fire on a "
+            "stall and never guillotine a legitimate clip. Added to the "
+            "proposal's Sec 8.4 table 2026-08-16."
         ),
     )
     tts_reader_max_seconds: float = Field(

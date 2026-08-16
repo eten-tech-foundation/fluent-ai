@@ -126,13 +126,14 @@ class TtsService:
         self._warn_if_limits_disagree()
 
     def _warn_if_limits_disagree(self) -> None:
-        """Say so at boot when the two forms of one bound have drifted apart.
+        """Say so at boot when the text limit admits more than the ceiling holds.
 
-        `TTS_MAX_TEXT_LENGTH` and `TTS_MAX_CLIP_BYTES` ship as the same limit in
-        two units (characters in, PCM bytes out). Both are overridable, and
-        overriding one alone reopens the gap this pairing closes: a text in
-        between passes validation, gets billed, synthesizes for minutes and is
-        then killed mid-stream, where the pair would have refused it for free.
+        `TTS_MAX_CLIP_BYTES` must cover `TTS_MAX_TEXT_LENGTH` converted to PCM
+        bytes. Both are overridable, and overriding one alone reopens the gap
+        this pairing closes: a text in between passes validation, gets billed,
+        synthesizes for minutes and is then killed mid-stream, where a
+        consistent pair would have refused it for free (docs/
+        source-tts-capacity.md).
 
         A warning and not a refusal to boot — a wide character limit is a
         wasteful configuration, not an unsafe one, and TTS misconfiguration must
@@ -340,7 +341,7 @@ class TtsService:
         )
         ceiling = self._heap.max_clip_bytes
         try:
-            async with asyncio.timeout(self._settings.tts_generation_max_seconds):
+            async with asyncio.timeout(self._settings.tts_generation_timeout_seconds):
                 async for chunk in self._provider.synthesize_stream(request):
                     if len(entry.buffer) + len(chunk) > ceiling:
                         # §9.2's per-clip ceiling, and it is a real tripwire
