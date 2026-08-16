@@ -69,8 +69,23 @@ FROM base AS runtime
 # same package set — the same base digest built a week apart must resolve to
 # identical bytes. Bump these deliberately alongside CVE review, same as the
 # base image digest and uv version/digest above.
+# ffmpeg is the source-TTS compression tail's encoder (§10.1). It is installed
+# here rather than arriving with the Python dependencies because
+# `imageio-ffmpeg` ships **no musl wheel** — on this Alpine base uv installs its
+# sdist, whose bundled-binaries directory is empty, and the tail then fails on
+# every clip (found by running this image, 2026-08-16). The service degrades
+# honestly without it (audio still streams; nothing becomes durable, so every
+# listen re-bills the provider), which is why this is a cost blocker rather
+# than an outage.
+#
+# ⚠ This is an INTERIM answer and the team is expected to prefer the shared
+# transcode-mcp container instead — see B5 in the source-TTS blockers note. It
+# costs ~129 MB uncompressed, because Alpine's ffmpeg pulls the full libav
+# video stack for a 404 KB audio-only CLI. Swapping to a network transcoder is
+# a new class behind `Compressor` in services/tts/compression.py plus deleting
+# this line.
 RUN apk update && \
-    apk add --no-cache dumb-init=1.2.5-r4 curl=8.21.0-r0 && \
+    apk add --no-cache dumb-init=1.2.5-r4 curl=8.21.0-r0 ffmpeg=8.1.2-r0 && \
     rm -rf /var/cache/apk/*
 
 # Create a non-root user (uid/gid 1001 to match compose/podman runtime) and a

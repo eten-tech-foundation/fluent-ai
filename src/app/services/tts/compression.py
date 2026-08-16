@@ -106,13 +106,30 @@ def resolve_ffmpeg_binary() -> str:
     ordinary way to use ffmpeg without the GPL reaching our own source, but the
     container does then distribute GPL software, and the image grows. Both are
     inputs to B5, which is a team decision and not settled here.
+
+    ⚠ **There is no musl wheel** (found 2026-08-16, phase 09, by running the
+    real container). `imageio-ffmpeg` 0.6.0 publishes macOS, manylinux2014 and
+    Windows wheels only, so on `python:3.14-alpine` uv installs the 25 KB
+    *sdist*, whose `binaries/` directory is empty and whose `get_ffmpeg_exe()`
+    **raises RuntimeError** — not ImportError. Catching only ImportError
+    therefore skipped the PATH fallback entirely and, because this runs from
+    `FfmpegCompressor.__init__` inside `TtsService.__init__`, took the whole
+    service down: `generate`, which never encodes anything, answered 500 in the
+    container while passing every test on a glibc host.
     """
     try:
         import imageio_ffmpeg
-    except ImportError:  # pragma: no cover - the dependency is declared
-        bundled = None
-    else:
+
         bundled = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception as exc:  # noqa: BLE001 - see below
+        # Deliberately broad, and covering the import too. The package's
+        # failure vocabulary is not ours to predict — today it is ImportError
+        # if the dependency is dropped and RuntimeError on musl — and a
+        # narrower catch is exactly what turned a missing optional binary into
+        # a dead service. Nothing here is recoverable in a different way
+        # anyway: every path continues to the PATH lookup below.
+        logger.info("tts bundled ffmpeg unavailable; falling back", reason=str(exc))
+        bundled = None
 
     if bundled:
         return bundled

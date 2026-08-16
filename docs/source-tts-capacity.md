@@ -147,16 +147,28 @@ None of this is charged against `TTS_MAX_BUFFERED_BYTES`, which counts generatio
 part of what §8.4's "roughly ×1.5 headroom over the budget" is for, and one more reason the container
 limit (**B8**, still unanswered) is the number worth getting.
 
-## Why the encoder ships in the wheel
+## Where the encoder comes from
 
-`imageio-ffmpeg` is an ordinary dependency that carries a static ffmpeg binary, so encoding assumes
-nothing about what the container image provides — no `apt-get` layer, no base-image coupling, and the
-same binary in dev and production. `TTS_FFMPEG_BINARY` overrides it if a deployment must supply its
-own build.
+**On a developer machine, the wheel.** `imageio-ffmpeg` carries a static ffmpeg binary, so a `uv
+sync` is the whole setup. **In the container, `apk`.** That wheel publishes macOS, manylinux2014 and
+Windows builds and **no musl wheel**, so on this service's `python:3.14-alpine3.24` base uv installs
+its 25 KB sdist, whose bundled-binaries directory is empty and whose `get_ffmpeg_exe()` raises. The
+Dockerfiles therefore install `ffmpeg=8.1.2-r0` themselves, and `resolve_ffmpeg_binary()` prefers the
+wheel, then `PATH`, then a bare name that fails at the first encode. `TTS_FFMPEG_BINARY` overrides
+all three.
 
-Two properties of that binary are worth knowing before the packaging question (**B5**) is settled:
-it is built `--enable-gpl --enable-version3`, and it adds about **77 MB** to the image. Invoking it as
-a subprocess rather than linking it is the ordinary way to use ffmpeg without the GPL reaching this
-service's own source, but the image does then distribute GPL software. If either fact turns out to be
-unacceptable, the swap is one class in `services/tts/compression.py` — which is why the encoder sits
-behind a two-method seam rather than being called inline.
+That was found by running the image, not by reading (2026-08-16, phase 09). Before the fix, the
+raise escaped `TtsService.__init__` and took every TTS route down; now a missing encoder degrades
+only the tail.
+
+**What a deployment with no working encoder costs, once it survives:** audio still streams and every
+listener hears the whole verse, but nothing is ever uploaded — so no `302` is reachable and **every
+listen re-bills the provider**. Durability, not correctness, and expensive.
+
+Two properties of the packaging are still the team's to weigh (**B5**, re-opened): Alpine's ffmpeg
+adds about **129 MB uncompressed** (the full libav video stack, for a 404 KB audio-only CLI) and is
+GPL, as is the wheel's binary (`--enable-gpl --enable-version3`). Invoking either as a subprocess
+rather than linking it is the ordinary way to use ffmpeg without the GPL reaching this service's own
+source, but the image does then distribute GPL software. The likely answer is the shared
+`transcode-mcp` container instead, and the swap is one class in `services/tts/compression.py` —
+which is why the encoder sits behind a two-method seam rather than being called inline.

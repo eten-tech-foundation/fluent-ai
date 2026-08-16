@@ -4,14 +4,20 @@ tests/tts/test_compression.py — the ffmpeg encoder itself (§10.1, §10.2).
 **These spawn a real ffmpeg**, which is the point: everything else in the suite
 fakes this seam, so if nothing exercised the actual command line, a wrong flag
 would surface as an unplayable artifact in R2 rather than as a red test. They
-stay cheap — the fixtures are fractions of a second of audio, and the binary
-arrives with the dependencies (`imageio-ffmpeg`), so there is no environment to
-provision and nothing to skip.
+stay cheap — the fixtures are fractions of a second of audio.
+
+⚠ **They need an ffmpeg that runs on this machine, and that is not guaranteed
+by the dependencies.** `imageio-ffmpeg` ships no musl wheel, so inside the
+Alpine container these fall back to whatever is on `PATH` and fail outright if
+the image provisions nothing (phase 09, 2026-08-16 — B5's packaging answer is
+open again). On an ordinary glibc developer machine the wheel supplies it and
+there is nothing to provision.
 """
 
 import asyncio
 import math
 import os
+import shutil
 import struct
 import tempfile
 
@@ -185,12 +191,45 @@ class TestFailures:
         with pytest.raises(FileNotFoundError):
             await compressor.compress(tone(), pcm_format=PCM, target_format="ogg-opus")
 
-    def test_the_bundled_binary_is_what_resolves_by_default(self):
-        """§10.2's packaging decision, pinned: encoding must not depend on the
-        container image providing ffmpeg. If this ever resolves to a bare
-        `ffmpeg` from PATH, the wheel stopped shipping a binary and deployments
-        would start depending on their base image without anyone noticing."""
+    def test_something_absolute_resolves_on_this_machine(self):
+        """Whatever this developer has, it is a real path and not a bare name.
+
+        ⚠ This used to claim it proved §10.2's packaging — "if this resolves to
+        a bare `ffmpeg` from PATH, the wheel stopped shipping a binary". It
+        never could: **the assertion passes on a machine with ffmpeg installed
+        even when the wheel ships nothing**, which is exactly what happens on
+        musl. Phase 09 found that in the container, not here, and the honest
+        scope of this test is now in its name.
+        """
         assert os.path.isabs(resolve_ffmpeg_binary())
+
+    def test_a_bundled_binary_that_raises_falls_through_to_path(self, monkeypatch):
+        """The musl regression (2026-08-16), and the reason it was expensive.
+
+        On `python:3.14-alpine` there is no `imageio-ffmpeg` wheel, so uv
+        installs the sdist and `get_ffmpeg_exe()` raises **RuntimeError**. The
+        resolver caught only `ImportError`, so the exception escaped through
+        `FfmpegCompressor.__init__` and `TtsService.__init__` — and `POST
+        /tts/generate`, which never encodes anything, answered **500** in the
+        container while every test here passed on a glibc host.
+
+        The bar this pins: an unusable *optional* encoder degrades the tail,
+        never the service.
+        """
+        import imageio_ffmpeg
+
+        def raise_like_musl() -> str:
+            raise RuntimeError("No ffmpeg exe could be found.")
+
+        monkeypatch.setattr(imageio_ffmpeg, "get_ffmpeg_exe", raise_like_musl)
+
+        resolved = resolve_ffmpeg_binary()
+
+        # Either a real ffmpeg from PATH, or the last-resort name that fails at
+        # the first encode. Both are fine; raising is not.
+        assert resolved == shutil.which("ffmpeg") or resolved == "ffmpeg"
+        # And the compressor still builds, which is what the service needs.
+        assert FfmpegCompressor(concurrency=1) is not None
 
 
 class TestConcurrencyBound:
