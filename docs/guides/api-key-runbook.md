@@ -13,10 +13,13 @@ Covers three flows:
 
 ## Core principles
 
-1. **Hash in env, raw in a secrets manager.** The application only ever sees the
-   SHA-256 hash (`ADMIN_API_KEY_HASH`). The raw key lives outside the app — in
-   AWS Secrets Manager, Doppler, Vault, 1Password, or whatever your deploy
-   pipeline uses. Putting the raw key in `.env` defeats the entire design.
+1. **Hash in env, raw in a secrets manager.** During bootstrap, the
+   application receives only the SHA-256 hash (`ADMIN_API_KEY_HASH`). During
+   authentication, it receives raw keys transiently via the `X-API-Key`
+   header, hashes them immediately, and must not persist or log them. The raw
+   key lives outside the app — in AWS Secrets Manager, Doppler, Vault,
+   1Password, or whatever your deploy pipeline uses. Putting the raw key in
+   `.env` defeats the entire design.
 2. **Raw keys are one-shot.** `POST /api-keys/` returns `raw_key` exactly once
    in `ApiKeyCreated`. It is never stored and cannot be retrieved again. Lose
    it → revoke + recreate.
@@ -42,10 +45,10 @@ Covers three flows:
 
 Every protected endpoint pulls the raw key from the `X-API-Key` header (query
 param `api_key` is a fallback), SHA-256 hashes it, and looks up the
-`key_hash` in `ai.api_keys` filtered by `is_active = true` and
-`expires_at > now()` (or `NULL`). The raw key never touches the DB. The
-matched `ApiKey` row is attached to `request.state.api_key` and returned from
-the dependency for downstream use. See `require_api_key` in
+`key_hash` in `ai.api_keys`. `require_api_key` then rejects inactive records
+and records with an expired `expires_at`. The raw key never touches the DB.
+The matched `ApiKey` row is attached to `request.state.api_key` and returned
+from the dependency for downstream use. See `require_api_key` in
 [`src/app/security/auth.py`](../../src/app/security/auth.py) and
 `get_api_key_by_hash` in
 [`src/app/services/api_key.py`](../../src/app/services/api_key.py).
@@ -104,8 +107,9 @@ must add it yourself.
 ### 2.2 Store the raw key in your secrets manager
 
 Wherever operators retrieve production credentials (AWS Secrets Manager,
-Doppler, Vault, 1Password, etc.). This is the **only** copy of the raw key
-outside the moment of generation. The app will never see it.
+Doppler, Vault, 1Password, etc.). Store the bootstrap raw key here. The
+application does not receive it during seeding, but it receives raw keys
+when clients authenticate.
 
 ### 2.3 Configure the production environment
 
