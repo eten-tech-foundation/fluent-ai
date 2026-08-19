@@ -52,9 +52,7 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
     # Strip PG-specific constraints that SQLite cannot handle:
     #   - num_nonnulls check constraint (PG-only function)
     #   - partial index with postgresql_where (PG-only feature)
-    table.constraints = {
-        c for c in table.constraints if not _is_num_nonnulls_check(c)
-    }
+    table.constraints = {c for c in table.constraints if not _is_num_nonnulls_check(c)}
     table.indexes = set()  # drop all indexes (the only one is the partial index)
 
     async with engine.begin() as conn:
@@ -129,13 +127,13 @@ async def test_get_api_key_by_hash_returns_active_key(db_session: AsyncSession) 
 
 
 @pytest.mark.asyncio
-async def test_get_api_key_by_hash_returns_inactive_key(db_session: AsyncSession) -> None:
+async def test_get_api_key_by_hash_returns_inactive_key(
+    db_session: AsyncSession,
+) -> None:
     """Inactive (revoked) key is still returned — is_active filtering is
     require_api_key's responsibility, not the lookup's."""
     raw = "fai_inactive_test_key"
-    await _insert_key(
-        db_session, raw_key=raw, name="revoked-key", is_active=False
-    )
+    await _insert_key(db_session, raw_key=raw, name="revoked-key", is_active=False)
     result = await get_api_key_by_hash(db_session, raw)
     assert result is not None
     assert result.name == "revoked-key"
