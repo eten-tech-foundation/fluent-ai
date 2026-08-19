@@ -36,7 +36,7 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
     engine = engine.execution_options(schema_translate_map={"ai": None})
 
     scratch_metadata = MetaData()
-    table = ApiKey.__table__.to_metadata(scratch_metadata)
+    table = ApiKey.__table__.to_metadata(scratch_metadata)  # type: ignore[attr-defined]
 
     # Patch PG-specific column types to SQLite-compatible equivalents.
     for col in table.columns:
