@@ -3,7 +3,9 @@ tests/api/v1/test_api_keys.py — endpoint tests for /api-keys/
 
 Auth model:
   - No key                        → 401
-  - Inactive/revoked key          → 401 (filtered at DB level, indistinguishable from unknown key)
+  - Unknown key                   → 401 (no matching key_hash in DB)
+  - Revoked key (is_active=False) → 403 (record returned, then rejected by require_api_key)
+  - Expired key                   → 403 (record returned, then rejected by require_api_key)
   - Valid key, no admin permission → 403 on admin-only endpoints
   - Valid admin key               → full access
 
@@ -109,18 +111,6 @@ class TestAuthBehaviour:
             return_value=None,
         ):
             response = client.get("/api-keys/me", headers={"X-API-Key": "fai_unknown"})
-        assert response.status_code == 401
-
-    def test_inactive_key_returns_401(self, client):
-        """Service layer filters inactive keys before returning — result is None → 401."""
-        with patch(
-            "app.security.auth.get_api_key_by_hash",
-            new_callable=AsyncMock,
-            return_value=None,
-        ):
-            response = client.get(
-                "/api-keys/me", headers={"X-API-Key": "fai_some_revoked_key"}
-            )
         assert response.status_code == 401
 
     def test_revoked_key_record_returns_403(self, client):

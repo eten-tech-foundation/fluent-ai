@@ -75,9 +75,7 @@ async def create_api_key(
 async def get_api_key_by_hash(db: AsyncSession, raw_key: str) -> ApiKey | None:
     logger.debug("Looking up API key by hash")
     key_hash = hash_key(raw_key)
-    result = await db.execute(
-        select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.is_active.is_(True))
-    )
+    result = await db.execute(select(ApiKey).where(ApiKey.key_hash == key_hash))
     return result.scalar_one_or_none()
 
 
