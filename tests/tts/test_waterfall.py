@@ -572,3 +572,99 @@ class TestShutdown:
         await service.shutdown()
 
         assert service.heap.buffered_bytes == 0
+
+
+# ---------------------------------------------------------------------------
+# generate's short-circuit (§7.1, amended 2026-08-20)
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateShortCircuit:
+    """`generate` answers with the compressed object's URL when one exists.
+
+    These live beside the waterfall rather than in `test_service.py` because
+    the behaviour IS a waterfall rung: `generate` now answers the same question
+    rung 2 answers, one round trip earlier. Before this, a fully cached verse
+    cost the browser three hops — `generate`, `get-audio` (which read the
+    sidecar and HEADed the object only to redirect), and finally R2. Answering
+    at `generate` collapses that to two and skips the sidecar read entirely.
+
+    The margin of error is deliberate and one-directional: an artifact
+    compressed BETWEEN this call and the first GET is still reported as
+    streaming, so the caller can under-report a cache hit but never over-report
+    one — objects are immutable and never evicted (§9.4), so a URL handed out
+    here cannot stop resolving.
+    """
+
+    async def test_a_first_generate_asks_r2_nothing_extra(self, service, r2):
+        """The optimisation that keeps `generate` cheap (T8).
+
+        A sidecar this call WROTE cannot have been compressed yet — nothing has
+        ever listened to it — so there is nothing to look for, and the HEAD is
+        skipped rather than spent on a guaranteed miss.
+        """
+        response = await service.generate(TtsGenerateRequest(text="In the beginning"))
+
+        assert response.audio_url.endswith(".wav")
+        assert not response.audio_url.startswith("http")
+        assert r2.head_calls == []
+
+    async def test_a_repeat_generate_with_nothing_compressed_still_streams(
+        self, service, r2, settings, provider
+    ):
+        authorize(r2, settings, provider, text="In the beginning")
+
+        response = await service.generate(TtsGenerateRequest(text="In the beginning"))
+
+        assert (
+            response.audio_url
+            == f"audio/{artifact_hash(build_recipe(TtsGenerateRequest(text='In the beginning'), settings=settings, provider=provider), secret=settings.tts_hash_secret)}.wav"
+        )
+        # The sidecar already existed, so the object was worth looking for.
+        assert len(r2.head_calls) == 1
+
+    async def test_a_repeat_generate_returns_the_absolute_bucket_url(
+        self, service, r2, settings, provider
+    ):
+        digest = authorize(r2, settings, provider, text="In the beginning")
+        compress(r2, settings, digest)
+
+        response = await service.generate(TtsGenerateRequest(text="In the beginning"))
+
+        assert response.audio_url == f"https://tts.example.test/tts/audio/{digest}.ogg"
+
+    async def test_the_returned_url_carries_the_recipe_format(
+        self, r2, provider, compressor
+    ):
+        """The extension is the recipe's, not a constant — which is the whole
+        reason a caller can read the format off the URL at all."""
+        settings = tts_settings(tts_default_format="mp3")
+        store = TtsArtifactStore(client=r2, bucket="b", prefix=settings.tts_r2_prefix)  # type: ignore[arg-type]
+        service = TtsService(
+            settings=settings, store=store, provider=provider, compressor=compressor
+        )
+        digest = authorize(r2, settings, provider, text="In the beginning")
+        compress(r2, settings, digest, extension="mp3")
+
+        response = await service.generate(TtsGenerateRequest(text="In the beginning"))
+
+        assert response.audio_url.endswith(f"{digest}.mp3")
+
+    async def test_an_unconfigured_public_base_url_falls_back_and_does_not_raise(
+        self, r2, provider, compressor
+    ):
+        """`resolve_audio` turns this into a 503 the client can wait out, but
+        `generate` must not fail for a storage reason — it spends nothing and
+        its whole job is to authorize. The relative URL still works; the 503
+        then happens later, at the redirect, exactly as it did before."""
+        settings = tts_settings(tts_public_audio_base_url=None)
+        store = TtsArtifactStore(client=r2, bucket="b", prefix=settings.tts_r2_prefix)  # type: ignore[arg-type]
+        service = TtsService(
+            settings=settings, store=store, provider=provider, compressor=compressor
+        )
+        digest = authorize(r2, settings, provider, text="In the beginning")
+        compress(r2, settings, digest)
+
+        response = await service.generate(TtsGenerateRequest(text="In the beginning"))
+
+        assert response.audio_url == f"audio/{digest}.wav"

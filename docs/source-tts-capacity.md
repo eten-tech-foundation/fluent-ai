@@ -1,5 +1,10 @@
 # Source-TTS capacity: how many verses at once, and how long may one be?
 
+**Deploying the whole feature?** Start with
+[`source-tts-operations.md`](https://github.com/eten-tech-foundation/fluent-web/blob/main/docs/proposals/source-tts/source-tts-operations.md)
+in fluent-web — the checklist, the open decisions, and how to prove the artifact store is actually
+serving. This file is the sizing half of that.
+
 **Who this is for:** whoever deploys fluent-ai and knows the container's real memory limit. It answers
 one question — _what do I set, to support what?_ — and it is the single place the sizing evidence
 lives. **It deliberately does not state the current values.** Those are in

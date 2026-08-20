@@ -192,10 +192,43 @@ class TtsService:
             sidecar_written=written,
         )
 
+        # Already compressed? Then say so now, and save the caller a hop.
+        #
+        # A fully cached verse used to cost the browser THREE round trips:
+        # `generate`, then `get-audio` (which read the sidecar just to learn
+        # the extension, HEADed the object, and answered 302), then R2. This
+        # collapses that to two and skips the sidecar read entirely.
+        #
+        # `written` is what keeps it cheap (T8). A sidecar THIS call wrote
+        # cannot have been compressed — nothing has ever listened to it — so
+        # the HEAD would be a guaranteed miss and is skipped. The cost lands
+        # only on repeat calls, which are exactly the ones that can benefit.
+        #
+        # The margin of error is one-directional and therefore safe: an
+        # artifact compressed BETWEEN this call and the first GET is still
+        # reported as streaming, so a caller can under-report a cache hit but
+        # never over-report one. Objects are immutable and never evicted
+        # (§9.4), so a URL handed out here cannot stop resolving.
+        #
+        # Unconfigured public base URL falls through rather than raising:
+        # `resolve_audio` turns that into a 503 the client can wait out, but
+        # `generate` spends nothing and must not fail for a storage reason.
+        if not written and self._settings.tts_public_audio_base_url:
+            if (
+                await self._store.head(self.audio_key(artifact, recipe.format))
+                is not None
+            ):
+                return TtsGenerateResponse(
+                    audio_url=self._public_audio_url(artifact, recipe)
+                )
+
         # Sibling-relative on purpose (§7.1): the caller resolves it against
         # the URL it actually called, so the browser's audio fetch lands on
         # fluent-api and a direct consumer's lands here — with no config for
-        # anyone else's public hostname, and no rewriting by the proxy.
+        # anyone else's public hostname, and no rewriting by the proxy. An
+        # ABSOLUTE R2 URL from the branch above resolves to itself under the
+        # same `new URL(audio_url, response.url)` rule, so callers need no
+        # change to accept either.
         return TtsGenerateResponse(audio_url=f"audio/{artifact}.{STREAMING_EXTENSION}")
 
     # ------------------------------------------------------------------ #
