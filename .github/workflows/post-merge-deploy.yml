@@ -49,7 +49,7 @@ jobs:
                   password: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+              uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
             - name: Determine mutable tag
               id: tag
@@ -88,7 +88,7 @@ jobs:
                   persist-credentials: false
 
             - name: Install uv
-              uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+              uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
               with:
                   python-version: '3.14'
 
@@ -103,7 +103,7 @@ jobs:
               # If this step fails, the job stops here — appsettings/deploy below never run.
 
             - name: Azure login
-              uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+              uses: azure/login@f5d393ae46f8fde4be8b75f32e3fc50e654ad0ca # v3.0.1
               with:
                   creds: ${{ secrets.AZURE_CREDENTIALS }}
 
@@ -173,7 +173,7 @@ jobs:
                   persist-credentials: false
 
             - name: Install uv
-              uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+              uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
               with:
                   python-version: '3.14'
 
@@ -188,7 +188,7 @@ jobs:
               # If this step fails, the job stops here — appsettings/deploy below never run.
 
             - name: Azure login
-              uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+              uses: azure/login@f5d393ae46f8fde4be8b75f32e3fc50e654ad0ca # v3.0.1
               with:
                   creds: ${{ secrets.AZURE_CREDENTIALS }}
 
