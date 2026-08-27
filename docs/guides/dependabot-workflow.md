@@ -187,6 +187,22 @@ updates the trailing comment with the new tag — so pinning does not add manual
 4. No `fai.sh` gate is required — these PRs do not touch the `ai` schema, the FastAPI
    contract, or any Python dependency.
 
+### Enforcement
+
+Pinning is enforced mechanically, not by reviewer vigilance. The `Action pins` job in
+`pre-merge.yml` runs `.github/scripts/check-action-pins.sh`, which fails the build if any
+`uses:` under `.github/` is not a full 40-character commit SHA. Local `./` refs are
+exempt, since they resolve inside this repo rather than against a tag someone else can
+move.
+
+Convention alone was not enough: a sibling repo drifted to 21 un-pinned refs without
+anyone noticing, because a hand-written `@v4` reads as perfectly normal in review.
+
+The gate is deliberately narrower than a full `zizmor` run. `zizmor` reports other
+findings against these workflows (`template-injection` in `post-merge-deploy.yml`, among
+others), so adopting it as a blocking check today would fail every unrelated PR. It
+remains worth adopting once those are addressed -- this gate does not preclude it.
+
 ### Remediating an un-pinned action
 
 If a Dependabot PR (or a manual review) surfaces an action still referenced by tag (e.g.
