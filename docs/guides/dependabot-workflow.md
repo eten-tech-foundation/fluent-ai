@@ -376,3 +376,5 @@ with the user.
   ecosystem is configured in `.github/dependabot.yml` to group all action SHA bumps into a
   single weekly PR (`groups.github-actions`) so the pins stay current without per-action
   PR noise.
+
+<!-- verification scratch: confirming the Action pins required check reports on PRs -->
