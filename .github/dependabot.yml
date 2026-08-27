@@ -14,14 +14,23 @@ updates:
           # SHA-pinned workflows stay maintainable (one review/merge instead
           # of one PR per action). See docs/guides/dependabot-workflow.md
           # → "SHA pinning for GitHub Actions".
+          #
+          # A wildcard rather than an enumerated vendor list: this ecosystem
+          # only ever contains actions, and a list silently drops any vendor
+          # nobody remembered to add. The previous list would have missed
+          # softprops/* and pnpm/* had those actions been adopted here.
           github-actions:
               patterns:
-                  - 'actions/*'
-                  - 'astral-sh/*'
-                  - 'docker/*'
-                  - 'azure/*'
+                  - '*'
+          # Security advisories arrive as a separate update type and default to
+          # their own PR per action, which is the sprawl the group above exists
+          # to avoid. Same wildcard, scoped to security updates.
+          github-actions-security:
+              applies-to: security-updates
+              patterns:
+                  - '*'
       labels:
-          - 'github-actions'
+          - 'github_actions'
           - 'dependencies'
           - 'automated'
       commit-message:

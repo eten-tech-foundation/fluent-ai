@@ -187,6 +187,57 @@ updates the trailing comment with the new tag — so pinning does not add manual
 4. No `fai.sh` gate is required — these PRs do not touch the `ai` schema, the FastAPI
    contract, or any Python dependency.
 
+### Enforcement
+
+Pinning is enforced mechanically, not by reviewer vigilance. `action-pins.yml` runs
+`.github/scripts/check-action-pins.rb`, which fails the build if any `uses:` under
+`.github/workflows/` or `.github/actions/` is not a full 40-character commit SHA. Local
+`./` refs are exempt, since they resolve inside this repo rather than against a tag
+someone else can move, as are `docker://` refs carrying an `@sha256` digest.
+
+The checker parses the YAML rather than grepping it. A line-based scan gets four things
+wrong: it misses flow-style steps (`- { uses: x@v4 }`), and it misreports quoted refs,
+quoted local refs, and `uses:` text that merely appears inside a `run: |` block. Aliases
+are resolved through their anchors, so `uses: *act` is checked against what the anchor
+actually holds rather than skipped.
+
+### Why the gate is its own workflow
+
+`action-pins.yml` is deliberately separate from `pre-merge.yml`, and triggers on
+`pull_request_target` rather than `pull_request`. Under `pull_request`, GitHub composes
+the workflow from the merge commit, so a pull request can rewrite the gate that is meant
+to be judging it — keeping the job and check names while replacing the command with a
+no-op. On `pull_request_target` both the workflow definition and the checker come from
+the base branch, so neither is PR-controlled. The checker is fetched from the **default
+branch** and the job fails closed if it is missing, rather than falling back to the
+pull request's copy.
+
+`pull_request_target` is normally dangerous, because it hands a privileged token to a
+workflow that may run fork code. That does not apply here, and it is worth understanding
+why before editing that file:
+
+- the token is restricted to `contents: read`, and no secrets are used;
+- the pull request tree is checked out only to be **read as YAML data** by a script from
+  the base branch. Nothing from the pull request is executed — no install, no build, no
+  PR-supplied script;
+- the checker parses with Psych's AST API rather than `YAML.load`, so untrusted YAML
+  cannot instantiate objects.
+
+Adding any step that runs pull-request code to that workflow would turn it into a real
+privilege-escalation path. Keep it read-only.
+
+One consequence: because the workflow definition comes from the base branch, the gate
+does not run on the pull request that introduces it. It takes effect on the first pull
+request opened after that merges.
+
+Convention alone was not enough: a sibling repo drifted to 21 un-pinned refs without
+anyone noticing, because a hand-written `@v4` reads as perfectly normal in review.
+
+The gate is deliberately narrower than a full `zizmor` run. `zizmor` reports other
+findings against these workflows (`template-injection` in `post-merge-deploy.yml`, among
+others), so adopting it as a blocking check today would fail every unrelated PR. It
+remains worth adopting once those are addressed -- this gate does not preclude it.
+
 ### Remediating an un-pinned action
 
 If a Dependabot PR (or a manual review) surfaces an action still referenced by tag (e.g.
