@@ -190,10 +190,17 @@ updates the trailing comment with the new tag — so pinning does not add manual
 ### Enforcement
 
 Pinning is enforced mechanically, not by reviewer vigilance. The `Action pins` job in
-`pre-merge.yml` runs `.github/scripts/check-action-pins.sh`, which fails the build if any
-`uses:` under `.github/` is not a full 40-character commit SHA. Local `./` refs are
-exempt, since they resolve inside this repo rather than against a tag someone else can
-move.
+`pre-merge.yml` runs `.github/scripts/check-action-pins.rb`, which fails the build if any
+`uses:` under `.github/workflows/` or `.github/actions/` is not a full 40-character
+commit SHA. Local `./` refs are exempt, since they resolve inside this repo rather than
+against a tag someone else can move, as are `docker://` refs carrying an `@sha256`
+digest.
+
+The checker parses the YAML rather than grepping it, so it sees flow-style steps
+(`- { uses: x@v4 }`) and ignores `uses:` text that merely appears inside a `run: |`
+block. It runs from the **base** revision rather than the pull request's own copy —
+otherwise a PR could replace the checker with one that exits 0 and add an un-pinned
+action in the same commit.
 
 Convention alone was not enough: a sibling repo drifted to 21 un-pinned refs without
 anyone noticing, because a hand-written `@v4` reads as perfectly normal in review.
