@@ -1,12 +1,24 @@
+# Deploys a QA-tested commit to production.
+#
+# This is the only route to production. It refuses a commit that has no
+# successful QA deploy, so QA cannot be skipped by reaching for this workflow
+# instead — see the `qa-<sha>` tag written by `deploy-qa.yml`. The pause before
+# the deploy is the `production` Environment's required reviewers; without that
+# rule configured this workflow runs green and gates nothing.
 name: Promote to Production
+
 on:
     workflow_dispatch:
         inputs:
             sha:
                 description: 'Full 40-char commit SHA that was tested and approved in QA'
                 required: true
-
-concurrency: production-deploy
+                type: string
+            skip_qa_check:
+                description: 'Emergency only: promote a commit with no successful QA deploy'
+                required: false
+                type: boolean
+                default: false
 
 env:
     REGISTRY: ghcr.io
@@ -14,16 +26,23 @@ env:
 
 permissions:
     contents: read
-    packages: read
 
 jobs:
     validate:
-        name: Validate & Verify Image
+        name: Validate & Verify QA
         runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            contents: read
+            packages: read
         steps:
+            # `${{ }}` is substituted into the script before the shell sees it,
+            # so a crafted input would execute ahead of this regex. Pass through
+            # `env:` so the check actually runs before the value is used.
             - name: Validate SHA format
+              env:
+                  SHA: ${{ inputs.sha }}
               run: |
-                  SHA="${{ inputs.sha }}"
                   if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
                     echo "::error::'$SHA' is not a full 40-character commit SHA"
                     exit 1
@@ -36,90 +55,54 @@ jobs:
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Confirm the QA-tested image exists
+            # `qa-<sha>` is written by deploy-qa.yml only after that commit
+            # deployed to QA and passed its health check. Requiring it here is
+            # what makes "prod ships what QA tested" a property of the pipeline
+            # rather than a convention.
+            - name: Confirm the commit was deployed to QA
+              if: ${{ !inputs.skip_qa_check }}
+              env:
+                  SHA: ${{ inputs.sha }}
               run: |
-                  docker manifest inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ inputs.sha }} > /dev/null \
-                    || { echo "::error::No image found for sha-${{ inputs.sha }}"; exit 1; }
+                  IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+                  qa=$(docker manifest inspect "$IMAGE:qa-$SHA" 2>/dev/null) || {
+                    echo "::error::$SHA has no successful QA deployment. Run 'Deploy to QA' for it first, or use skip_qa_check if this is an emergency."
+                    exit 1
+                  }
+                  # Belt and braces: the two tags must be the same bits. They are
+                  # by construction (imagetools copies the manifest), so a
+                  # mismatch means someone pushed qa-<sha> by hand.
+                  built=$(docker manifest inspect "$IMAGE:sha-$SHA" 2>/dev/null) || {
+                    echo "::error::No build image found for sha-$SHA."
+                    exit 1
+                  }
+                  if [ "$qa" != "$built" ]; then
+                    echo "::error::qa-$SHA and sha-$SHA are different images. Refusing to promote."
+                    exit 1
+                  fi
+                  echo "$SHA has a verified QA deployment."
+
+            - name: Confirm the image exists
+              if: ${{ inputs.skip_qa_check }}
+              env:
+                  SHA: ${{ inputs.sha }}
+              run: |
+                  docker manifest inspect "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-$SHA" > /dev/null \
+                    || { echo "::error::No image found for sha-$SHA"; exit 1; }
+
+            - name: Warn on skipped QA check
+              if: ${{ inputs.skip_qa_check }}
+              env:
+                  SHA: ${{ inputs.sha }}
+                  ACTOR: ${{ github.actor }}
+              run: echo "::warning::QA verification skipped for $SHA by $ACTOR."
 
     deploy-prod:
-        name: Migrate & Deploy (prod)
         needs: validate
-        runs-on: ubuntu-latest
-        timeout-minutes: 15
-        environment:
-            name: Production
-            url: ${{ steps.deploy.outputs.webapp-url }}
-        steps:
-            - name: Checkout
-              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-              with:
-                  ref: ${{ inputs.sha }}
-                  persist-credentials: false
-
-            - name: Install uv
-              uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-              with:
-                  python-version: '3.14'
-
-            - name: Install dependencies (no dev)
-              run: uv sync --frozen --no-dev
-
-            - name: Run Alembic migrations
-              env:
-                  MIGRATIONS_DATABASE_URL: ${{ secrets.MIGRATIONS_DATABASE_URL }}
-                  DATABASE_URL: ${{ secrets.DATABASE_URL }}
-              run: uv run alembic upgrade head
-
-            - name: Azure login
-              uses: azure/login@f5d393ae46f8fde4be8b75f32e3fc50e654ad0ca # v3.0.1
-              with:
-                  creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-            - name: Configure GHCR pull credentials on Web App
-              run: |
-                  az webapp config container set \
-                    --name fluent-ai-prod \
-                    --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-                    --docker-registry-server-url https://${{ env.REGISTRY }} \
-                    --docker-registry-server-user "${{ secrets.GHCR_USERNAME }}" \
-                    --docker-registry-server-password "${{ secrets.GHCR_PAT }}"
-
-            - name: Set App Service settings
-              run: |
-                  az webapp config appsettings set \
-                    --name fluent-ai-prod \
-                    --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-                    --settings \
-                      DATABASE_URL="${{ secrets.DATABASE_URL }}" \
-                      SECRET_KEY="${{ secrets.SECRET_KEY }}" \
-                      OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
-                      ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" \
-                      GOOGLE_AI_API_KEY="${{ secrets.GOOGLE_AI_API_KEY }}" \
-                      API_SERVICE_KEY="${{ secrets.API_SERVICE_KEY }}" \
-                      API_BASE_URL="${{ secrets.API_BASE_URL }}" \
-                      WEBSITES_PORT="${{ vars.WEBSITES_PORT || '8200' }}" \
-                      ADMIN_API_KEY_HASH="${{ secrets.ADMIN_API_KEY_HASH }}" \
-                      ENVIRONMENT="production"
-
-            - name: Deploy to Azure Web App
-              id: deploy
-              uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3.0.8
-              with:
-                  app-name: fluent-ai-prod
-                  publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_PROD }}
-                  images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ inputs.sha }}
-
-            - name: Verify /health
-              env:
-                  HEALTH_URL: ${{ vars.PROD_HEALTH_URL || 'https://fluent-ai-prod.azurewebsites.net/health' }}
-              run: |
-                  for i in $(seq 1 10); do
-                    if curl -sf "$HEALTH_URL"; then
-                      echo "Health check passed"
-                      exit 0
-                    fi
-                    echo "Attempt $i failed, retrying in 15s..."
-                    sleep 15
-                  done
-                  echo "Health check failed after 10 attempts"
-                  exit 1
+        uses: ./.github/workflows/deploy.yml
+        with:
+            sha: ${{ inputs.sha }}
+            environment: production
+            app_name: fluent-ai-prod
+            app_environment: production
+        secrets: inherit

@@ -1,0 +1,205 @@
+# Migrates the database and deploys one already-built image to one Azure Web App.
+#
+# Every deploy in this repo goes through here -- dev on merge to main, QA from
+# `deploy-qa.yml`, prod from `promote-to-prod.yml`. Keeping one definition is
+# not just DRY: the three copies it replaces had already drifted (only one had
+# a `timeout-minutes`, only one passed its SHA through `env:`, the App Service
+# settings list was maintained in triplicate), and a drifted deploy job is a QA
+# stage that tests something prod won't ship.
+#
+# This workflow never builds. `post-merge-deploy.yml` builds each commit on
+# main once and pushes it as `sha-<commit>`; QA and prod then deploy that same
+# immutable image. Prod does not rebuild what QA tested -- it ships the
+# identical bits.
+#
+# Secrets resolve from the GitHub Environment named by `environment`, so every
+# environment supplies the same secret NAMES with its own values. Do not
+# reintroduce `_DEV`/`_QA`/`_PROD` suffixes -- the environment is the scope.
+name: Deploy
+
+on:
+    workflow_call:
+        inputs:
+            sha:
+                description: 'Full 40-char commit SHA whose image (`sha-<commit>`) to deploy'
+                required: true
+                type: string
+            environment:
+                description: 'GitHub Environment supplying the secrets: development | qa | production'
+                required: true
+                type: string
+            app_name:
+                description: 'Azure Web App to deploy to, e.g. fluent-ai-qa'
+                required: true
+                type: string
+            app_environment:
+                description: >-
+                    Baked into the ENVIRONMENT app setting. src/app/config.py understands
+                    "development" and "production" only, and branches on it for log
+                    formatting, stack traces, and dev API-key seeding.
+                required: true
+                type: string
+        outputs:
+            url:
+                description: 'URL of the deployed Web App'
+                value: ${{ jobs.deploy.outputs.url }}
+
+env:
+    REGISTRY: ghcr.io
+    IMAGE_NAME: ${{ github.repository }}
+
+permissions:
+    contents: read
+
+jobs:
+    deploy:
+        name: Migrate & Deploy (${{ inputs.environment }})
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        environment:
+            name: ${{ inputs.environment }}
+            url: ${{ steps.deploy.outputs.webapp-url }}
+
+        # Serialise per environment, so two promotions in quick succession
+        # cannot race the same Web App. Queue rather than cancel: a
+        # half-finished deploy that loses to a newer one leaves the app --
+        # and possibly a part-applied migration -- in an unknown state.
+        concurrency:
+            group: deploy-${{ inputs.environment }}
+            cancel-in-progress: false
+
+        outputs:
+            url: ${{ steps.deploy.outputs.webapp-url }}
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ inputs.sha }}
+                  persist-credentials: false
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+              with:
+                  python-version: '3.14'
+
+            - name: Install dependencies (no dev)
+              run: uv sync --frozen --no-dev
+
+            # Migrations run from the same commit the image was built from, and
+            # they run FIRST: if this step fails the job stops here, so the app
+            # settings and the new image below are never applied.
+            - name: Run Alembic migrations
+              env:
+                  MIGRATIONS_DATABASE_URL: ${{ secrets.MIGRATIONS_DATABASE_URL }}
+                  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+              run: uv run alembic upgrade head
+
+            - name: Azure login
+              uses: azure/login@f5d393ae46f8fde4be8b75f32e3fc50e654ad0ca # v3.0.1
+              with:
+                  creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+            - name: Configure GHCR pull credentials on Web App
+              # GHCR packages pushed via GITHUB_TOKEN are private by default — App
+              # Service needs its own credentials to pull, unless you've manually
+              # made the package public in GitHub package settings.
+              env:
+                  APP_NAME: ${{ inputs.app_name }}
+                  RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+                  GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+                  GHCR_PAT: ${{ secrets.GHCR_PAT }}
+              run: |
+                  az webapp config container set \
+                    --name "$APP_NAME" \
+                    --resource-group "$RESOURCE_GROUP" \
+                    --docker-registry-server-url "https://${{ env.REGISTRY }}" \
+                    --docker-registry-server-user "$GHCR_USERNAME" \
+                    --docker-registry-server-password "$GHCR_PAT"
+
+            - name: Set App Service settings
+              # Values go through `env:` rather than straight into the script, so
+              # secrets are never rendered into the command line the runner logs.
+              env:
+                  APP_NAME: ${{ inputs.app_name }}
+                  RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+                  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+                  SECRET_KEY: ${{ secrets.SECRET_KEY }}
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
+                  API_SERVICE_KEY: ${{ secrets.API_SERVICE_KEY }}
+                  API_BASE_URL: ${{ secrets.API_BASE_URL }}
+                  ADMIN_API_KEY_HASH: ${{ secrets.ADMIN_API_KEY_HASH }}
+                  WEBSITES_PORT: ${{ vars.WEBSITES_PORT || '8200' }}
+                  APP_ENVIRONMENT: ${{ inputs.app_environment }}
+                  APP_COMMIT_SHA: ${{ inputs.sha }}
+              run: |
+                  az webapp config appsettings set \
+                    --name "$APP_NAME" \
+                    --resource-group "$RESOURCE_GROUP" \
+                    --settings \
+                      DATABASE_URL="$DATABASE_URL" \
+                      SECRET_KEY="$SECRET_KEY" \
+                      OPENAI_API_KEY="$OPENAI_API_KEY" \
+                      ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+                      GOOGLE_AI_API_KEY="$GOOGLE_AI_API_KEY" \
+                      API_SERVICE_KEY="$API_SERVICE_KEY" \
+                      API_BASE_URL="$API_BASE_URL" \
+                      ADMIN_API_KEY_HASH="$ADMIN_API_KEY_HASH" \
+                      WEBSITES_PORT="$WEBSITES_PORT" \
+                      ENVIRONMENT="$APP_ENVIRONMENT" \
+                      APP_COMMIT_SHA="$APP_COMMIT_SHA"
+
+            - name: Deploy to Azure Web App
+              id: deploy
+              # Authenticated by the `Azure login` step above. The publish profile
+              # this used to take was redundant: the same service principal
+              # already reconfigures the app two steps up, so it demonstrably has
+              # write access, and dropping it retires three environment secrets.
+              uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3.0.8
+              with:
+                  app-name: ${{ inputs.app_name }}
+                  images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ inputs.sha }}
+
+            # App Service swaps the container in behind the scenes, so a 200
+            # alone can still be the OLD build answering. /health reports the
+            # commit it was deployed with; wait for the one we just shipped.
+            - name: Verify /health
+              env:
+                  HEALTH_URL: ${{ vars.HEALTH_URL || format('https://{0}.azurewebsites.net/health', inputs.app_name) }}
+                  SHA: ${{ inputs.sha }}
+              run: |
+                  for i in $(seq 1 20); do
+                    body=$(curl -sf "$HEALTH_URL") || body=""
+                    if [ -n "$body" ]; then
+                      commit=$(echo "$body" | jq -r '.commit // "unknown"')
+                      if [ "$commit" = "$SHA" ]; then
+                        echo "Health check passed, serving $commit"
+                        exit 0
+                      fi
+                      echo "Attempt $i: healthy but still serving '$commit', want '$SHA'"
+                    else
+                      echo "Attempt $i: no healthy response"
+                    fi
+                    sleep 15
+                  done
+                  echo "::error::$HEALTH_URL did not report commit $SHA after 20 attempts (5 minutes)"
+                  exit 1
+
+            - name: Summarise
+              if: always()
+              env:
+                  APP_ENV: ${{ inputs.environment }}
+                  APP_NAME: ${{ inputs.app_name }}
+                  SHA: ${{ inputs.sha }}
+              run: |
+                  {
+                    echo "### Deploy to \`$APP_ENV\`"
+                    echo ""
+                    echo "| | |"
+                    echo "|---|---|"
+                    echo "| Web App | \`$APP_NAME\` |"
+                    echo "| Commit | \`$SHA\` |"
+                    echo "| Image | \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-$SHA\` |"
+                  } >> "$GITHUB_STEP_SUMMARY"
