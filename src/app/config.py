@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     # Application
     app_name: str = Field(default="Fluent AI API")
     app_version: str = Field(default_factory=_get_app_version)
+    # Set by the deploy workflow to the commit the running image was built
+    # from. Deployments here are promoted by commit SHA, not by tag, so this
+    # — not app_version — is what identifies which build is live.
+    app_commit_sha: str = Field(default="unknown")
     debug: bool = Field(default=False)
     environment: str = Field(default="development")
 

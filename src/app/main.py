@@ -127,4 +127,12 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    # The deploy workflows poll this endpoint to decide whether a rollout
+    # succeeded, and the deployment runbooks read `commit` off it to confirm
+    # which build is live. Keep `status` first and unchanged.
+    return {
+        "status": "healthy",
+        "version": settings.app_version,
+        "environment": settings.environment,
+        "commit": settings.app_commit_sha,
+    }
