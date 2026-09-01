@@ -127,4 +127,10 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    # Deploy workflows gate a rollout on `commit` — keep these keys stable.
+    return {
+        "status": "healthy",
+        "version": settings.app_version,
+        "environment": settings.environment,
+        "commit": settings.app_commit_sha,
+    }

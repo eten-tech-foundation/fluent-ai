@@ -1,0 +1,152 @@
+# Deploys a QA-tested commit to production.
+#
+# This is the only route to production. It refuses a commit that is not on
+# `main`, and — unless `skip_qa_check` is set — one that has no successful QA
+# deploy, so QA cannot be skipped by reaching for this workflow instead. See
+# the `qa-<sha>` tag written by `deploy-qa.yml`. The pause before the deploy is
+# the `production` Environment's required reviewers; without that rule
+# configured this workflow runs green and gates nothing.
+name: Promote to Production
+
+on:
+    workflow_dispatch:
+        inputs:
+            sha:
+                description: 'Full 40-char commit SHA that was tested and approved in QA'
+                required: true
+                type: string
+            skip_qa_check:
+                description: 'Emergency only: promote a commit with no successful QA deploy'
+                required: false
+                type: boolean
+                default: false
+
+env:
+    REGISTRY: ghcr.io
+    IMAGE_NAME: ${{ github.repository }}
+
+permissions:
+    contents: read
+
+jobs:
+    validate:
+        name: Validate & Verify QA
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            contents: read
+            packages: read
+            # Reading the build provenance attestation.
+            attestations: read
+        outputs:
+            digest: ${{ steps.image.outputs.digest }}
+        steps:
+            # For ./.github/actions/verify-image-provenance below.
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            # `${{ }}` is substituted into the script before the shell sees it,
+            # so a crafted input would execute ahead of this regex. Pass through
+            # `env:` so the check actually runs before the value is used.
+            - name: Validate SHA format
+              env:
+                  SHA: ${{ inputs.sha }}
+              run: |
+                  if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+                    echo "::error::'$SHA' is not a full 40-character commit SHA"
+                    exit 1
+                  fi
+
+            # Deliberately NOT under `skip_qa_check`. That switch exists to skip
+            # the QA *evidence*, not the requirement that production runs
+            # reviewed code. Images built before builds were restricted to main
+            # still exist in GHCR, so "the image exists" does not imply the
+            # commit was ever merged.
+            - name: Confirm the commit is on main
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ inputs.sha }}
+              run: |
+                  status=$(gh api "repos/$REPO/compare/main...$SHA" --jq '.status' 2>/dev/null || echo "unknown")
+                  case "$status" in
+                    identical|behind)
+                      echo "$SHA is on main."
+                      ;;
+                    *)
+                      echo "::error::$SHA is not reachable from main (compare status: $status). Production deploys reviewed code only."
+                      exit 1
+                      ;;
+                  esac
+
+            - name: Log in to GHCR
+              uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+              with:
+                  registry: ${{ env.REGISTRY }}
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            # Everything below compares digests, and `deploy-prod` deploys the
+            # digest resolved here — so a tag repointed after this step cannot
+            # change what ships.
+            - name: Resolve image digest
+              id: image
+              env:
+                  SHA: ${{ inputs.sha }}
+              run: |
+                  IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+                  digest=$(docker buildx imagetools inspect "$IMAGE:sha-$SHA" --format '{{.Manifest.Digest}}' 2>/dev/null) \
+                    || { echo "::error::No image found for sha-$SHA"; exit 1; }
+                  echo "sha-$SHA is $digest"
+                  echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+            - name: Verify build provenance
+              uses: ./.github/actions/verify-image-provenance
+              with:
+                  image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+                  digest: ${{ steps.image.outputs.digest }}
+                  sha: ${{ inputs.sha }}
+                  repo: ${{ github.repository }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+
+            # `qa-<sha>` is written by deploy-qa.yml only after that commit
+            # deployed to QA and passed its health check, and it is tagged from
+            # the digest QA ran. Requiring the two to match is what makes "prod
+            # ships what QA tested" a property of the pipeline rather than a
+            # convention.
+            - name: Confirm the commit was deployed to QA
+              if: ${{ !inputs.skip_qa_check }}
+              env:
+                  SHA: ${{ inputs.sha }}
+                  BUILT: ${{ steps.image.outputs.digest }}
+              run: |
+                  IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+                  qa=$(docker buildx imagetools inspect "$IMAGE:qa-$SHA" --format '{{.Manifest.Digest}}' 2>/dev/null) || {
+                    echo "::error::$SHA has no successful QA deployment. Run 'Deploy to QA' for it first, or use skip_qa_check if this is an emergency."
+                    exit 1
+                  }
+                  if [ "$qa" != "$BUILT" ]; then
+                    echo "::error::qa-$SHA ($qa) and sha-$SHA ($BUILT) are different images. Refusing to promote."
+                    exit 1
+                  fi
+                  echo "$SHA has a verified QA deployment of $qa."
+
+            - name: Warn on skipped QA check
+              if: ${{ inputs.skip_qa_check }}
+              env:
+                  SHA: ${{ inputs.sha }}
+                  ACTOR: ${{ github.actor }}
+              run: echo "::warning::QA verification skipped for $SHA by $ACTOR."
+
+    deploy-prod:
+        needs: validate
+        uses: ./.github/workflows/deploy.yml
+        with:
+            sha: ${{ inputs.sha }}
+            image_digest: ${{ needs.validate.outputs.digest }}
+            environment: production
+            app_name: fluent-ai-prod
+            app_environment: production
+        secrets: inherit

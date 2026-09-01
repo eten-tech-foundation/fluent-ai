@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     # Application
     app_name: str = Field(default="Fluent AI API")
     app_version: str = Field(default_factory=_get_app_version)
+    # Commit the running image was built from; set by the deploy workflow.
+    app_commit_sha: str = Field(default="unknown")
     debug: bool = Field(default=False)
     environment: str = Field(default="development")
 

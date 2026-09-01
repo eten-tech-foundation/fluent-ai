@@ -1,22 +1,14 @@
-name: Build, Migrate & Deploy
+# Builds every commit on main once, and deploys it to the dev Web App.
+#
+# The image this pushes as `sha-<commit>` is the artifact QA and production
+# later deploy — they never rebuild. Deploys address it by digest rather than
+# by that tag; see `.github/workflows/deploy.yml`.
+name: Build, Migrate & Deploy (Dev)
 
 on:
     push:
         branches: [main]
-    workflow_dispatch:
-        inputs:
-            environment:
-                description: Environment to deploy to
-                required: true
-                default: dev
-                type: choice
-                options:
-                    - dev
-                    - prod
-
-concurrency:
-    group: deploy-${{ github.event.inputs.environment || 'dev' }}
-    cancel-in-progress: false
+    workflow_dispatch: {}
 
 env:
     REGISTRY: ghcr.io
@@ -30,11 +22,22 @@ jobs:
         name: Build & Push Image
         runs-on: ubuntu-latest
         timeout-minutes: 20
+        # A manual dispatch can be aimed at any ref. Build only main: an image
+        # tagged `sha-<commit>` is the token QA and prod promotion accept, so
+        # publishing one for an unmerged branch would put unreviewed code a
+        # workflow dispatch away from an environment.
+        if: github.ref == 'refs/heads/main'
         permissions:
             contents: read
             packages: write
+            # Signing the provenance attestation below.
+            id-token: write
+            attestations: write
+        concurrency:
+            group: build-main
+            cancel-in-progress: false
         outputs:
-            image-tag: sha-${{ github.sha }}
+            digest: ${{ steps.build.outputs.digest }}
         steps:
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,16 +54,8 @@ jobs:
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
-            - name: Determine mutable tag
-              id: tag
-              run: |
-                  if [ "${{ github.event.inputs.environment }}" = "prod" ]; then
-                    echo "mutable=prod" >> "$GITHUB_OUTPUT"
-                  else
-                    echo "mutable=dev" >> "$GITHUB_OUTPUT"
-                  fi
-
             - name: Build and push
+              id: build
               uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
               with:
                   context: .
@@ -68,174 +63,33 @@ jobs:
                   push: true
                   tags: |
                       ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
-                      ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.mutable }}
+                      ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
                   cache-from: type=gha
                   cache-to: type=gha,mode=max
 
+            # Signs a statement that THIS digest was built by THIS workflow from
+            # THIS commit, and pushes it alongside the image. Until now the only
+            # thing binding a digest to a commit was the `sha-<commit>` tag,
+            # which is a mutable pointer anyone with packages:write can move —
+            # so a repointed tag could put content in QA and production that
+            # /health would still report as the legitimate commit. QA and
+            # promotion verify this attestation before they accept a digest.
+            - name: Attest build provenance
+              uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+              with:
+                  subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+                  subject-digest: ${{ steps.build.outputs.digest }}
+                  push-to-registry: true
+
     deploy-dev:
-        name: Migrate & Deploy (dev)
         needs: build
-        if: github.event_name == 'push' || github.event.inputs.environment == 'dev'
-        runs-on: ubuntu-latest
-        timeout-minutes: 15
-        environment:
-            name: Development
-            url: ${{ steps.deploy.outputs.webapp-url }}
-        steps:
-            - name: Checkout
-              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-              with:
-                  persist-credentials: false
-
-            - name: Install uv
-              uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-              with:
-                  python-version: '3.14'
-
-            - name: Install dependencies (no dev)
-              run: uv sync --frozen --no-dev
-
-            - name: Run Alembic migrations
-              env:
-                  MIGRATIONS_DATABASE_URL: ${{ secrets.MIGRATIONS_DATABASE_URL }}
-                  DATABASE_URL: ${{ secrets.DATABASE_URL }}
-              run: uv run alembic upgrade head
-              # If this step fails, the job stops here — appsettings/deploy below never run.
-
-            - name: Azure login
-              uses: azure/login@f5d393ae46f8fde4be8b75f32e3fc50e654ad0ca # v3.0.1
-              with:
-                  creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-            - name: Configure GHCR pull credentials on Web App
-              # GHCR packages pushed via GITHUB_TOKEN are private by default — App
-              # Service needs its own credentials to pull, unless you've manually
-              # made the package public in GitHub package settings.
-              run: |
-                  az webapp config container set \
-                    --name fluent-ai-dev \
-                    --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-                    --docker-registry-server-url https://${{ env.REGISTRY }} \
-                    --docker-registry-server-user "${{ secrets.GHCR_USERNAME }}" \
-                    --docker-registry-server-password "${{ secrets.GHCR_PAT }}"
-
-            - name: Set App Service settings
-              run: |
-                  az webapp config appsettings set \
-                    --name fluent-ai-dev \
-                    --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-                    --settings \
-                      DATABASE_URL="${{ secrets.DATABASE_URL }}" \
-                      SECRET_KEY="${{ secrets.SECRET_KEY }}" \
-                      OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
-                      ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" \
-                      GOOGLE_AI_API_KEY="${{ secrets.GOOGLE_AI_API_KEY }}" \
-                      API_SERVICE_KEY="${{ secrets.API_SERVICE_KEY }}" \
-                      API_BASE_URL="${{ secrets.API_BASE_URL }}" \
-                      WEBSITES_PORT="${{ vars.WEBSITES_PORT || '8200' }}"
-
-            - name: Deploy to Azure Web App
-              id: deploy
-              uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3.0.8
-              with:
-                  app-name: fluent-ai-dev
-                  publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_DEV }}
-                  images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
-
-            - name: Verify /health
-              env:
-                  HEALTH_URL: ${{ vars.DEV_HEALTH_URL || 'https://fluent-ai-dev.azurewebsites.net/health' }}
-              run: |
-                  for i in $(seq 1 10); do
-                    if curl -sf "$HEALTH_URL"; then
-                      echo "Health check passed"
-                      exit 0
-                    fi
-                    echo "Attempt $i failed, retrying in 15s..."
-                    sleep 15
-                  done
-                  echo "Health check failed after 10 attempts"
-                  exit 1
-
-    deploy-prod:
-        name: Migrate & Deploy (prod)
-        needs: build
-        if: github.event.inputs.environment == 'prod'
-        runs-on: ubuntu-latest
-        timeout-minutes: 15
-        environment:
-            name: Production
-            url: ${{ steps.deploy.outputs.webapp-url }}
-        steps:
-            - name: Checkout
-              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-              with:
-                  persist-credentials: false
-
-            - name: Install uv
-              uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-              with:
-                  python-version: '3.14'
-
-            - name: Install dependencies (no dev)
-              run: uv sync --frozen --no-dev
-
-            - name: Run Alembic migrations
-              env:
-                  MIGRATIONS_DATABASE_URL: ${{ secrets.MIGRATIONS_DATABASE_URL }}
-                  DATABASE_URL: ${{ secrets.DATABASE_URL }}
-              run: uv run alembic upgrade head
-              # If this step fails, the job stops here — appsettings/deploy below never run.
-
-            - name: Azure login
-              uses: azure/login@f5d393ae46f8fde4be8b75f32e3fc50e654ad0ca # v3.0.1
-              with:
-                  creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-            - name: Configure GHCR pull credentials on Web App
-              run: |
-                  az webapp config container set \
-                    --name fluent-ai-prod \
-                    --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-                    --docker-registry-server-url https://${{ env.REGISTRY }} \
-                    --docker-registry-server-user "${{ secrets.GHCR_USERNAME }}" \
-                    --docker-registry-server-password "${{ secrets.GHCR_PAT }}"
-
-            - name: Set App Service settings
-              run: |
-                  az webapp config appsettings set \
-                    --name fluent-ai-prod \
-                    --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-                    --settings \
-                      DATABASE_URL="${{ secrets.DATABASE_URL }}" \
-                      SECRET_KEY="${{ secrets.SECRET_KEY }}" \
-                      OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
-                      ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" \
-                      GOOGLE_AI_API_KEY="${{ secrets.GOOGLE_AI_API_KEY }}" \
-                      API_SERVICE_KEY="${{ secrets.API_SERVICE_KEY }}" \
-                      API_BASE_URL="${{ secrets.API_BASE_URL }}" \
-                      WEBSITES_PORT="${{ vars.WEBSITES_PORT || '8200' }}" \
-                      ADMIN_API_KEY_HASH="${{ secrets.ADMIN_API_KEY_HASH }}"
-
-            - name: Deploy to Azure Web App
-              id: deploy
-              uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3.0.8
-              with:
-                  app-name: fluent-ai-prod
-                  publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_PROD }}
-                  images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
-
-            - name: Verify /health
-              env:
-                  HEALTH_URL: ${{ vars.PROD_HEALTH_URL || 'https://fluent-ai-prod.azurewebsites.net/health' }}
-              run: |
-                  for i in $(seq 1 10); do
-                    if curl -sf "$HEALTH_URL"; then
-                      echo "Health check passed"
-                      exit 0
-                    fi
-                    echo "Attempt $i failed, retrying in 15s..."
-                    sleep 15
-                  done
-                  echo "Health check failed after 10 attempts"
-                  exit 1
+        uses: ./.github/workflows/deploy.yml
+        with:
+            sha: ${{ github.sha }}
+            # Straight from the build — the strongest link there is, no registry
+            # round trip that a repointed tag could answer.
+            image_digest: ${{ needs.build.outputs.digest }}
+            environment: development
+            app_name: fluent-ai-dev
+            app_environment: development
+        secrets: inherit

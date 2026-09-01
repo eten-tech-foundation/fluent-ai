@@ -1,0 +1,184 @@
+# Deploys a commit that is already on main to the QA Web App.
+#
+# QA is the only route to production: `promote-to-prod.yml` refuses a commit
+# that has no successful QA deploy. The proof it looks for is written by the
+# `mark-qa-pass` job at the bottom of this file.
+name: Deploy to QA
+
+on:
+    workflow_dispatch:
+        inputs:
+            sha:
+                description: 'Full 40-char commit SHA to promote to QA (blank = latest main)'
+                required: false
+
+env:
+    REGISTRY: ghcr.io
+    IMAGE_NAME: ${{ github.repository }}
+
+permissions:
+    contents: read
+
+jobs:
+    resolve:
+        name: Resolve & Verify Image
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            contents: read
+            packages: read
+            # Reading the build provenance attestation.
+            attestations: read
+        outputs:
+            sha: ${{ steps.resolve.outputs.sha }}
+            digest: ${{ steps.image.outputs.digest }}
+        steps:
+            # For ./.github/actions/verify-image-provenance below.
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            # `${{ }}` is substituted into the script before the shell sees it,
+            # so a crafted input would execute ahead of the regex meant to
+            # validate it. Everything derived from `inputs` goes through `env:`.
+            - name: Resolve target SHA
+              id: resolve
+              env:
+                  INPUT_SHA: ${{ inputs.sha }}
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  if [ -n "$INPUT_SHA" ]; then
+                    if [[ ! "$INPUT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+                      echo "::error::'$INPUT_SHA' is not a full 40-character commit SHA"
+                      exit 1
+                    fi
+                    SHA="$INPUT_SHA"
+                  else
+                    SHA=$(gh api "repos/$REPO/commits/main" --jq '.sha')
+                    echo "No SHA given; using the head of main: $SHA"
+                  fi
+                  echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+            # Images exist only for commits on main (see post-merge-deploy.yml),
+            # but that is a property of another workflow's `if:`. Check it here
+            # too, so QA cannot become a laundering step for unmerged code.
+            - name: Confirm the commit is on main
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ steps.resolve.outputs.sha }}
+              run: |
+                  status=$(gh api "repos/$REPO/compare/main...$SHA" --jq '.status' 2>/dev/null || echo "unknown")
+                  case "$status" in
+                    identical|behind)
+                      echo "$SHA is on main."
+                      ;;
+                    *)
+                      echo "::error::$SHA is not reachable from main (compare status: $status). Merge it first."
+                      exit 1
+                      ;;
+                  esac
+
+            - name: Log in to GHCR
+              uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+              with:
+                  registry: ${{ env.REGISTRY }}
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            # Resolve the tag to a digest here, and hand the DIGEST onward. The
+            # tag is a mutable pointer; everything downstream — the deploy and
+            # the qa-<sha> marker — addresses the content this step actually
+            # verified, so repointing sha-<commit> afterwards changes nothing.
+            - name: Resolve image digest
+              id: image
+              env:
+                  SHA: ${{ steps.resolve.outputs.sha }}
+              run: |
+                  IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+                  digest=$(docker buildx imagetools inspect "$IMAGE:sha-$SHA" --format '{{.Manifest.Digest}}' 2>/dev/null) \
+                    || { echo "::error::No image found for sha-$SHA — has the build for this commit finished?"; exit 1; }
+                  echo "sha-$SHA is $digest"
+                  echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+            - name: Verify build provenance
+              uses: ./.github/actions/verify-image-provenance
+              with:
+                  image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+                  digest: ${{ steps.image.outputs.digest }}
+                  sha: ${{ steps.resolve.outputs.sha }}
+                  repo: ${{ github.repository }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+
+    deploy-qa:
+        needs: resolve
+        uses: ./.github/workflows/deploy.yml
+        with:
+            sha: ${{ needs.resolve.outputs.sha }}
+            image_digest: ${{ needs.resolve.outputs.digest }}
+            environment: qa
+            app_name: fluent-ai-qa
+            # src/app/config.py knows "development" and "production" only, and
+            # QA is meant to behave like production: JSON logging, no stack
+            # traces, and NO dev admin API key seeded (src/app/db/seeds/
+            # api_keys.py gates that on `is_production`). QA testers therefore
+            # need a real key from ADMIN_API_KEY_HASH. If you would rather QA
+            # behaved like dev, this is the one word to change.
+            app_environment: production
+        secrets: inherit
+
+    mark-qa-pass:
+        name: Record QA deployment
+        needs: [resolve, deploy-qa]
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            contents: read
+            packages: write
+        steps:
+            - name: Log in to GHCR
+              uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+              with:
+                  registry: ${{ env.REGISTRY }}
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            # The QA pass is recorded as an image tag rather than read back off
+            # the GitHub deployments API. A deployment's `sha` is the sha of the
+            # workflow RUN, not of whatever the run deployed: this workflow is
+            # dispatched against a branch, so deploying an older commit to QA
+            # would file its deployment under the head of main and
+            # `promote-to-prod` would match the wrong commit. Tagging the image
+            # makes that mismatch impossible rather than merely detectable, and
+            # it attaches the evidence to the artifact being promoted.
+            #
+            # Tagged from the DIGEST that was verified and deployed, not from
+            # the sha-<commit> tag, so qa-<sha> names the content QA actually
+            # ran even if that tag has since moved.
+            #
+            # `--prefer-index=false` is load-bearing. The default wraps a
+            # single-platform manifest in a NEW index, which changes the digest
+            # — and `promote-to-prod` promotes only if qa-<sha> and sha-<sha>
+            # resolve to the same digest, so the default would fail the happy
+            # path. Asserting equality here rather than trusting the flag means
+            # a buildx that behaves differently fails now, with a clear reason,
+            # instead of mysteriously at promotion time.
+            - name: Tag the QA-verified image
+              env:
+                  SHA: ${{ needs.resolve.outputs.sha }}
+                  DIGEST: ${{ needs.resolve.outputs.digest }}
+              run: |
+                  IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+                  docker buildx imagetools create --prefer-index=false --tag "$IMAGE:qa-$SHA" "$IMAGE@$DIGEST"
+
+                  tagged=$(docker buildx imagetools inspect "$IMAGE:qa-$SHA" --format '{{.Manifest.Digest}}')
+                  if [ "$tagged" != "$DIGEST" ]; then
+                    echo "::error::qa-$SHA resolved to $tagged, not the deployed $DIGEST. Promotion would reject it."
+                    exit 1
+                  fi
+                  echo "qa-$SHA points at $DIGEST"
+                  echo "### Deployed to QA: \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+                  echo "" >> "$GITHUB_STEP_SUMMARY"
+                  echo "Test it, then ship it with the **Promote to Production** workflow." >> "$GITHUB_STEP_SUMMARY"
