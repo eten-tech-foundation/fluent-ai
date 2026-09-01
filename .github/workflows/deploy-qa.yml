@@ -29,6 +29,7 @@ jobs:
             packages: read
         outputs:
             sha: ${{ steps.resolve.outputs.sha }}
+            digest: ${{ steps.image.outputs.digest }}
         steps:
             # `${{ }}` is substituted into the script before the shell sees it,
             # so a crafted input would execute ahead of the regex meant to
@@ -79,18 +80,27 @@ jobs:
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Confirm image exists in GHCR
+            # Resolve the tag to a digest here, and hand the DIGEST onward. The
+            # tag is a mutable pointer; everything downstream — the deploy and
+            # the qa-<sha> marker — addresses the content this step actually
+            # verified, so repointing sha-<commit> afterwards changes nothing.
+            - name: Resolve image digest
+              id: image
               env:
                   SHA: ${{ steps.resolve.outputs.sha }}
               run: |
-                  docker manifest inspect "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-$SHA" > /dev/null \
+                  IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+                  digest=$(docker buildx imagetools inspect "$IMAGE:sha-$SHA" --format '{{.Manifest.Digest}}' 2>/dev/null) \
                     || { echo "::error::No image found for sha-$SHA — has the build for this commit finished?"; exit 1; }
+                  echo "sha-$SHA is $digest"
+                  echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
     deploy-qa:
         needs: resolve
         uses: ./.github/workflows/deploy.yml
         with:
             sha: ${{ needs.resolve.outputs.sha }}
+            image_digest: ${{ needs.resolve.outputs.digest }}
             environment: qa
             app_name: fluent-ai-qa
             # src/app/config.py knows "development" and "production" only, and
@@ -127,14 +137,16 @@ jobs:
             # makes that mismatch impossible rather than merely detectable, and
             # it attaches the evidence to the artifact being promoted.
             #
-            # `imagetools create` copies the manifest — it does not rebuild, so
-            # qa-<sha> and sha-<sha> are by construction the same digest.
+            # Tagged from the DIGEST that was verified and deployed, not from
+            # the sha-<commit> tag, so qa-<sha> names the content QA actually
+            # ran even if that tag has since moved.
             - name: Tag the QA-verified image
               env:
                   SHA: ${{ needs.resolve.outputs.sha }}
+                  DIGEST: ${{ needs.resolve.outputs.digest }}
               run: |
                   IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-                  docker buildx imagetools create --tag "$IMAGE:qa-$SHA" "$IMAGE:sha-$SHA"
+                  docker buildx imagetools create --tag "$IMAGE:qa-$SHA" "$IMAGE@$DIGEST"
                   echo "### Deployed to QA: \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
                   echo "" >> "$GITHUB_STEP_SUMMARY"
                   echo "Test it, then ship it with the **Promote to Production** workflow." >> "$GITHUB_STEP_SUMMARY"

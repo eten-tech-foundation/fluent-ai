@@ -35,8 +35,11 @@ Confirm `commit` is the SHA you deployed and `environment` is `production`.
 > QA runs with `ENVIRONMENT=production` on purpose, so it exercises the same
 > logging, error handling and startup checks production will. One consequence:
 > the dev admin API key is **not** seeded in QA (`src/app/db/seeds/api_keys.py`
-> gates that on `is_production`). Use a real key issued from
-> `ADMIN_API_KEY_HASH`.
+> gates that on `is_production`). `ADMIN_API_KEY_HASH` is only the SHA-256 the
+> app checks presented keys against — it cannot issue one, and sending the hash
+> itself will not authenticate. Use the plaintext key whose hash it is, from
+> the secrets manager, and provision one per
+> [the API key runbook](../../guides/api-key-runbook.md) if QA has none.
 
 ## 4. Promote to production
 

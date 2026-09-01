@@ -9,8 +9,14 @@
 #
 # This workflow never builds. `post-merge-deploy.yml` builds each commit on
 # main once and pushes it as `sha-<commit>`; QA and prod then deploy that same
-# immutable image. Prod does not rebuild what QA tested -- it ships the
-# identical bits.
+# image. Prod does not rebuild what QA tested -- it ships the identical bits.
+#
+# Callers pass the image DIGEST, not a tag. A registry tag is a mutable
+# pointer: `sha-<commit>` can be repointed at different content after the
+# caller verified it, and /health cannot contradict that because its `commit`
+# is a value this workflow injects rather than anything read off the image.
+# Resolving the digest at verification time and deploying `image@sha256:...`
+# closes the gap between the check and the deploy.
 #
 # Secrets resolve from the GitHub Environment named by `environment`, so every
 # environment supplies the same secret NAMES with its own values. Do not
@@ -21,7 +27,11 @@ on:
     workflow_call:
         inputs:
             sha:
-                description: 'Full 40-char commit SHA whose image (`sha-<commit>`) to deploy'
+                description: 'Full 40-char commit SHA the image was built from — used for checkout, migrations and health metadata'
+                required: true
+                type: string
+            image_digest:
+                description: 'Image digest to deploy, `sha256:<64 hex>`. Resolved by the caller at the point it verified the image.'
                 required: true
                 type: string
             environment:
@@ -72,6 +82,18 @@ jobs:
             url: ${{ steps.deploy.outputs.webapp-url }}
 
         steps:
+            # The boundary of the reusable workflow: a malformed digest would
+            # otherwise surface as an opaque Azure error after migrations have
+            # already run.
+            - name: Validate image digest
+              env:
+                  DIGEST: ${{ inputs.image_digest }}
+              run: |
+                  if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                    echo "::error::'$DIGEST' is not a sha256 image digest"
+                    exit 1
+                  fi
+
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
@@ -160,7 +182,7 @@ jobs:
               uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3.0.8
               with:
                   app-name: ${{ inputs.app_name }}
-                  images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ inputs.sha }}
+                  images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ inputs.image_digest }}
 
             # App Service swaps the container in behind the scenes, so a 200
             # alone can still be the OLD build answering. /health reports the
@@ -171,7 +193,7 @@ jobs:
                   SHA: ${{ inputs.sha }}
               run: |
                   for i in $(seq 1 20); do
-                    body=$(curl -sf "$HEALTH_URL") || body=""
+                    body=$(curl -sf --connect-timeout 5 --max-time 10 "$HEALTH_URL") || body=""
                     if [ -n "$body" ]; then
                       commit=$(echo "$body" | jq -r '.commit // "unknown"')
                       if [ "$commit" = "$SHA" ]; then
@@ -193,6 +215,7 @@ jobs:
                   APP_ENV: ${{ inputs.environment }}
                   APP_NAME: ${{ inputs.app_name }}
                   SHA: ${{ inputs.sha }}
+                  DIGEST: ${{ inputs.image_digest }}
               run: |
                   {
                     echo "### Deploy to \`$APP_ENV\`"
@@ -201,5 +224,5 @@ jobs:
                     echo "|---|---|"
                     echo "| Web App | \`$APP_NAME\` |"
                     echo "| Commit | \`$SHA\` |"
-                    echo "| Image | \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-$SHA\` |"
+                    echo "| Image | \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@$DIGEST\` |"
                   } >> "$GITHUB_STEP_SUMMARY"

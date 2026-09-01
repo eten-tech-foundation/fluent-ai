@@ -1,7 +1,8 @@
 # Builds every commit on main once, and deploys it to the dev Web App.
 #
 # The image this pushes as `sha-<commit>` is the artifact QA and production
-# later deploy — they never rebuild. See `.github/workflows/deploy.yml`.
+# later deploy — they never rebuild. Deploys address it by digest rather than
+# by that tag; see `.github/workflows/deploy.yml`.
 name: Build, Migrate & Deploy (Dev)
 
 on:
@@ -32,6 +33,8 @@ jobs:
         concurrency:
             group: build-main
             cancel-in-progress: false
+        outputs:
+            digest: ${{ steps.build.outputs.digest }}
         steps:
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -49,6 +52,7 @@ jobs:
               uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
             - name: Build and push
+              id: build
               uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
               with:
                   context: .
@@ -65,6 +69,9 @@ jobs:
         uses: ./.github/workflows/deploy.yml
         with:
             sha: ${{ github.sha }}
+            # Straight from the build — the strongest link there is, no registry
+            # round trip that a repointed tag could answer.
+            image_digest: ${{ needs.build.outputs.digest }}
             environment: development
             app_name: fluent-ai-dev
             app_environment: development

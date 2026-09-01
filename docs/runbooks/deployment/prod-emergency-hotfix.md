@@ -39,10 +39,12 @@ curl -s https://fluent-ai-prod.azurewebsites.net/health | jq
 
 ## If even QA is too slow
 
-Run **Promote to Production** with `skip_qa_check` ticked. It deploys a commit
-no environment has run.
+Run **Promote to Production** with `skip_qa_check` ticked. It ships the commit
+without a QA run — dev has already run it, by step 1 above, but nothing has
+exercised it against production-shaped configuration.
 
-It still requires the image to exist, so the commit must be on `main` and built.
+It still requires the commit to be on `main` and its image to exist; the bypass
+skips the QA evidence, not the requirement that production runs reviewed code.
 It logs a warning naming you as the actor, and production's reviewer approval
 still applies — a second person is looking at it.
 

@@ -16,8 +16,9 @@ commit it is running, which is how each runbook below verifies its work.
 | **Deploy to QA** | manual, takes a SHA (blank = head of `main`) | QA |
 | **Promote to Production** | manual, takes a SHA | production, after approval |
 
-There is no automatic path to production, and no path to production that does
-not pass through QA.
+There is no automatic path to production. Normal promotion requires a
+successful QA deploy of the same commit; `skip_qa_check` is the one documented
+exception, and it is covered under [the QA gate](#how-the-qa-gate-works) below.
 
 - [Standard release](prod-release.md) — the happy path
 - [Rollback](prod-rollback.md) — put a previous build back

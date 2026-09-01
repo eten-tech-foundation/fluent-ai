@@ -1,8 +1,15 @@
 # Production Rollback
 
 Rolling back is a normal promotion of an older commit. Nothing special is
-required, because production deploys an immutable image identified by SHA and
-every previously released commit still has one.
+required, because production deploys an image by digest and every previously
+released commit still has one.
+
+That last part is a property of the registry, not a guarantee: GHCR keeps
+package versions until something deletes them, and no workflow here does. If a
+retention policy is ever added, exclude `sha-*` and `qa-*` — they are the
+rollback surface. **Promote to Production** fails closed with a clear error
+before touching migrations or Azure if an image has gone, so a missing one
+costs you a rebuild, not an outage on top of an outage.
 
 ## 1. Find the commit to go back to
 
