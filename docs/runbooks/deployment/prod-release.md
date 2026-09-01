@@ -26,7 +26,8 @@ image `qa-<commit>` — that tag is what production will check for.
 ## 3. Test QA
 
 ```bash
-curl -s https://fluent-ai-qa.azurewebsites.net/health | jq
+# The QA app's URL is on the Deploy to QA run, next to the `qa` environment.
+curl -s "$QA_URL/health" | jq
 ```
 
 Confirm `commit` is the SHA you deployed and `environment` is `production`.
@@ -56,7 +57,7 @@ never deployed.
 ## 5. Verify production
 
 ```bash
-curl -s https://fluent-ai-prod.azurewebsites.net/health | jq
+curl -s https://fluent-ai-prod-bggedmdvafbsagag.centralindia-01.azurewebsites.net/health | jq
 ```
 
 `commit` must be the SHA you promoted.

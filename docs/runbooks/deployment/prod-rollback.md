@@ -16,7 +16,7 @@ costs you a rebuild, not an outage on top of an outage.
 The commit currently live:
 
 ```bash
-curl -s https://fluent-ai-prod.azurewebsites.net/health | jq -r .commit
+curl -s https://fluent-ai-prod-bggedmdvafbsagag.centralindia-01.azurewebsites.net/health | jq -r .commit
 ```
 
 The commit you want instead — usually the previous release, which you can read

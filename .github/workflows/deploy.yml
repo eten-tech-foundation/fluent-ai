@@ -189,9 +189,30 @@ jobs:
             # commit it was deployed with; wait for the one we just shipped.
             - name: Verify /health
               env:
-                  HEALTH_URL: ${{ vars.HEALTH_URL || format('https://{0}.azurewebsites.net/health', inputs.app_name) }}
+                  # The URL comes from the deploy itself. Constructing
+                  # `https://<app-name>.azurewebsites.net` does not work here:
+                  # these apps have Azure's unique default hostnames
+                  # (fluent-ai-dev-cucbe2d8hcbsctfq.westeurope-01...), so a
+                  # guessed host silently fails to resolve and every probe
+                  # reports "no healthy response" while the deploy was fine.
+                  # Set the `HEALTH_URL` environment variable only to override
+                  # for a custom domain.
+                  WEBAPP_URL: ${{ steps.deploy.outputs.webapp-url }}
+                  HEALTH_URL_OVERRIDE: ${{ vars.HEALTH_URL }}
                   SHA: ${{ inputs.sha }}
               run: |
+                  base="${HEALTH_URL_OVERRIDE:-$WEBAPP_URL}"
+                  if [ -z "$base" ]; then
+                    echo "::error::The deploy reported no webapp-url and no HEALTH_URL variable is set, so there is nothing to verify against."
+                    exit 1
+                  fi
+                  base="${base%/}"
+                  case "$base" in
+                    */health) HEALTH_URL="$base" ;;
+                    *) HEALTH_URL="$base/health" ;;
+                  esac
+                  echo "Verifying $HEALTH_URL"
+
                   # A wall-clock deadline rather than a count of attempts: each
                   # probe can take up to --max-time, so "20 tries, 15s apart"
                   # was really up to 8m20s of a window documented as five

@@ -34,7 +34,7 @@ exercise the broken path.
 the `production` deployment, then verify:
 
 ```bash
-curl -s https://fluent-ai-prod.azurewebsites.net/health | jq
+curl -s https://fluent-ai-prod-bggedmdvafbsagag.centralindia-01.azurewebsites.net/health | jq
 ```
 
 ## If even QA is too slow
