@@ -78,3 +78,12 @@ place.
 > `AZUREAPPSERVICE_PUBLISHPROFILE_*` is no longer used. Deploys authenticate
 > with `AZURE_CREDENTIALS`, the same service principal that already reconfigures
 > the Web App. The three publish-profile secrets can be deleted.
+
+> [!NOTE]
+> The `DEV_HEALTH_URL` / `PROD_HEALTH_URL` environment **variables** are no
+> longer used either. The health check reads the URL from the deploy's own
+> `webapp-url` output, so a new environment needs no health variable and no
+> hostname is ever guessed — these apps have Azure unique default hostnames
+> (`fluent-ai-dev-cucbe2d8hcbsctfq.westeurope-01…`), not `<app>.azurewebsites.net`.
+> Set a `HEALTH_URL` variable on an environment only to override for a custom
+> domain; with or without a trailing `/health` both work.
