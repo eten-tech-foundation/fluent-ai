@@ -27,10 +27,18 @@ jobs:
         permissions:
             contents: read
             packages: read
+            # Reading the build provenance attestation.
+            attestations: read
         outputs:
             sha: ${{ steps.resolve.outputs.sha }}
             digest: ${{ steps.image.outputs.digest }}
         steps:
+            # For ./.github/actions/verify-image-provenance below.
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
             # `${{ }}` is substituted into the script before the shell sees it,
             # so a crafted input would execute ahead of the regex meant to
             # validate it. Everything derived from `inputs` goes through `env:`.
@@ -95,6 +103,15 @@ jobs:
                   echo "sha-$SHA is $digest"
                   echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
+            - name: Verify build provenance
+              uses: ./.github/actions/verify-image-provenance
+              with:
+                  image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+                  digest: ${{ steps.image.outputs.digest }}
+                  sha: ${{ steps.resolve.outputs.sha }}
+                  repo: ${{ github.repository }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+
     deploy-qa:
         needs: resolve
         uses: ./.github/workflows/deploy.yml
@@ -140,13 +157,28 @@ jobs:
             # Tagged from the DIGEST that was verified and deployed, not from
             # the sha-<commit> tag, so qa-<sha> names the content QA actually
             # ran even if that tag has since moved.
+            #
+            # `--prefer-index=false` is load-bearing. The default wraps a
+            # single-platform manifest in a NEW index, which changes the digest
+            # — and `promote-to-prod` promotes only if qa-<sha> and sha-<sha>
+            # resolve to the same digest, so the default would fail the happy
+            # path. Asserting equality here rather than trusting the flag means
+            # a buildx that behaves differently fails now, with a clear reason,
+            # instead of mysteriously at promotion time.
             - name: Tag the QA-verified image
               env:
                   SHA: ${{ needs.resolve.outputs.sha }}
                   DIGEST: ${{ needs.resolve.outputs.digest }}
               run: |
                   IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-                  docker buildx imagetools create --tag "$IMAGE:qa-$SHA" "$IMAGE@$DIGEST"
+                  docker buildx imagetools create --prefer-index=false --tag "$IMAGE:qa-$SHA" "$IMAGE@$DIGEST"
+
+                  tagged=$(docker buildx imagetools inspect "$IMAGE:qa-$SHA" --format '{{.Manifest.Digest}}')
+                  if [ "$tagged" != "$DIGEST" ]; then
+                    echo "::error::qa-$SHA resolved to $tagged, not the deployed $DIGEST. Promotion would reject it."
+                    exit 1
+                  fi
+                  echo "qa-$SHA points at $DIGEST"
                   echo "### Deployed to QA: \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
                   echo "" >> "$GITHUB_STEP_SUMMARY"
                   echo "Test it, then ship it with the **Promote to Production** workflow." >> "$GITHUB_STEP_SUMMARY"

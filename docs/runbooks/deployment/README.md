@@ -26,9 +26,16 @@ exception, and it is covered under [the QA gate](#how-the-qa-gate-works) below.
 
 ## How the QA gate works
 
-`Deploy to QA` finishes by copying the image manifest to a second tag,
+Both gates resolve `sha-<commit>` to a **digest** and deploy `image@sha256:…`,
+never the tag. A tag is a mutable pointer, so before accepting a digest each
+gate verifies the signed SLSA provenance attestation that the build pushes
+alongside the image, and requires it to name this repository's build workflow
+and the commit being deployed. That is what binds digest to commit; `/health`
+cannot, because its `commit` is a value the deploy workflow injects.
+
+On top of that, `Deploy to QA` finishes by retagging the deployed digest as
 `qa-<commit>`. `Promote to Production` refuses any commit that has no such tag,
-and re-checks that `qa-<commit>` and `sha-<commit>` are the same digest.
+and re-checks that `qa-<commit>` and `sha-<commit>` resolve to the same digest.
 
 The gate deliberately does **not** read the GitHub deployments API. A
 deployment's recorded `sha` is the sha of the workflow *run*, not of whatever
@@ -37,8 +44,12 @@ against `main` would file the deployment under main's head and the check would
 match the wrong commit. An image tag attaches the evidence to the artifact
 being promoted, so the mismatch cannot occur.
 
-`skip_qa_check` exists for the case where production is down hard and even a QA
-pass is too slow. It logs a warning naming the actor, and production's reviewer
+`skip_qa_check` waives only the QA evidence. The commit must still be on
+`main`, and its image must still carry valid provenance for that commit — the
+bypass is for skipping a test cycle, never for shipping unattested content.
+
+It exists for the case where production is down hard and even a QA pass is too
+slow. It logs a warning naming the actor, and production's reviewer
 approval still applies. Treat every use as something to raise at the incident
 review.
 

@@ -36,9 +36,17 @@ jobs:
         permissions:
             contents: read
             packages: read
+            # Reading the build provenance attestation.
+            attestations: read
         outputs:
             digest: ${{ steps.image.outputs.digest }}
         steps:
+            # For ./.github/actions/verify-image-provenance below.
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
             # `${{ }}` is substituted into the script before the shell sees it,
             # so a crafted input would execute ahead of this regex. Pass through
             # `env:` so the check actually runs before the value is used.
@@ -93,6 +101,15 @@ jobs:
                     || { echo "::error::No image found for sha-$SHA"; exit 1; }
                   echo "sha-$SHA is $digest"
                   echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+            - name: Verify build provenance
+              uses: ./.github/actions/verify-image-provenance
+              with:
+                  image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+                  digest: ${{ steps.image.outputs.digest }}
+                  sha: ${{ inputs.sha }}
+                  repo: ${{ github.repository }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
 
             # `qa-<sha>` is written by deploy-qa.yml only after that commit
             # deployed to QA and passed its health check, and it is tagged from

@@ -192,21 +192,29 @@ jobs:
                   HEALTH_URL: ${{ vars.HEALTH_URL || format('https://{0}.azurewebsites.net/health', inputs.app_name) }}
                   SHA: ${{ inputs.sha }}
               run: |
-                  for i in $(seq 1 20); do
+                  # A wall-clock deadline rather than a count of attempts: each
+                  # probe can take up to --max-time, so "20 tries, 15s apart"
+                  # was really up to 8m20s of a window documented as five
+                  # minutes. This keeps the contract literal however slow the
+                  # individual probes are.
+                  deadline=$((SECONDS + 300))
+                  attempt=0
+                  while [ "$SECONDS" -lt "$deadline" ]; do
+                    attempt=$((attempt + 1))
                     body=$(curl -sf --connect-timeout 5 --max-time 10 "$HEALTH_URL") || body=""
                     if [ -n "$body" ]; then
                       commit=$(echo "$body" | jq -r '.commit // "unknown"')
                       if [ "$commit" = "$SHA" ]; then
-                        echo "Health check passed, serving $commit"
+                        echo "Health check passed on attempt $attempt, serving $commit"
                         exit 0
                       fi
-                      echo "Attempt $i: healthy but still serving '$commit', want '$SHA'"
+                      echo "Attempt $attempt: healthy but still serving '$commit', want '$SHA'"
                     else
-                      echo "Attempt $i: no healthy response"
+                      echo "Attempt $attempt: no healthy response"
                     fi
                     sleep 15
                   done
-                  echo "::error::$HEALTH_URL did not report commit $SHA after 20 attempts (5 minutes)"
+                  echo "::error::$HEALTH_URL did not report commit $SHA within 5 minutes ($attempt attempts)"
                   exit 1
 
             - name: Summarise

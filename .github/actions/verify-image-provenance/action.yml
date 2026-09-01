@@ -1,0 +1,75 @@
+# Proves a digest was built by this repo's build workflow from an expected commit.
+#
+# Both routes to an environment resolve a digest from the mutable `sha-<commit>`
+# tag. That tag is only a pointer: anyone with packages:write can move it, and
+# /health cannot contradict a repointed one because its `commit` is a value the
+# deploy workflow injects rather than anything read off the image. Verifying the
+# signed provenance attestation that `post-merge-deploy.yml` pushes is what
+# actually binds digest -> commit.
+#
+# One definition, used by both `deploy-qa.yml` and `promote-to-prod.yml`, so the
+# QA gate and the production gate cannot check different things.
+name: Verify image provenance
+description: Verify a signed build provenance attestation binds an image digest to an expected commit.
+
+inputs:
+    image:
+        description: 'Image repository, without tag or digest'
+        required: true
+    digest:
+        description: 'Digest to verify, `sha256:<64 hex>`'
+        required: true
+    sha:
+        description: 'Commit the image must have been built from'
+        required: true
+    repo:
+        description: 'owner/repo that both owns the attestation and built the image'
+        required: true
+    github-token:
+        description: 'Token for the attestation API'
+        required: true
+
+runs:
+    using: composite
+    steps:
+        - name: Verify provenance binds the digest to the commit
+          shell: bash
+          env:
+              IMAGE: ${{ inputs.image }}
+              DIGEST: ${{ inputs.digest }}
+              SHA: ${{ inputs.sha }}
+              REPO: ${{ inputs.repo }}
+              GH_TOKEN: ${{ inputs.github-token }}
+          run: |
+              # --signer-workflow narrows this to the build workflow. Without it
+              # any attestation signed for this repository would satisfy the
+              # check, including one from a workflow induced to attest a digest
+              # it did not build.
+              attestation=$(gh attestation verify "oci://$IMAGE@$DIGEST" \
+                --repo "$REPO" \
+                --signer-workflow "$REPO/.github/workflows/post-merge-deploy.yml" \
+                --format json 2>&1) || {
+                  echo "::error::No valid build provenance for $IMAGE@$DIGEST. It was not built by $REPO's build workflow, or the attestation is missing."
+                  echo "$attestation"
+                  exit 1
+                }
+
+              # SLSA v1 records the source commit among the build's resolved
+              # dependencies. Search them all rather than indexing, so ordering
+              # changes in the predicate do not silently defeat the check.
+              built_from=$(echo "$attestation" | jq -r '
+                [ .[].verificationResult.statement.predicate.buildDefinition.resolvedDependencies[]?.digest.gitCommit // empty ]
+                | first // empty
+              ')
+
+              if [ -z "$built_from" ]; then
+                echo "::error::Provenance for $IMAGE@$DIGEST records no source commit; refusing to treat it as bound to $SHA."
+                exit 1
+              fi
+
+              if [ "$built_from" != "$SHA" ]; then
+                echo "::error::$IMAGE@$DIGEST was built from $built_from, not $SHA. The sha-$SHA tag does not point at this commit's build."
+                exit 1
+              fi
+
+              echo "$DIGEST is attested as built by $REPO from $SHA."
