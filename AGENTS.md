@@ -405,3 +405,10 @@ Both `Dockerfile` and `Dockerfile.dev` create `/app/logs` owned by the `python` 
 The container filesystem is read-only, so `/app/logs` is mounted as an anonymous volume
 (Docker Compose) or named volume (Podman) to allow writes. In development, `LOG_OUTPUT`
 defaults to `stdout`.
+
+## Docs
+
+See `docs/README.md` for the docs directory convention. Brainstorming and
+writing-plans skill output goes to `docs/features/<slug>/`
+(`proposal.md`/`design.md`/`plan.md`/`tickets/`), not the skill's built-in
+`docs/superpowers/...` default.
