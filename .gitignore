@@ -227,3 +227,4 @@ coverage.xml
 
 # AI generated files
 .claude/
+.superpowers/
