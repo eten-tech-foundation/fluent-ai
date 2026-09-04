@@ -40,7 +40,7 @@ Confirm `commit` is the SHA you deployed and `environment` is `production`.
 > app checks presented keys against — it cannot issue one, and sending the hash
 > itself will not authenticate. Use the plaintext key whose hash it is, from
 > the secrets manager, and provision one per
-> [the API key runbook](../../guides/api-key-runbook.md) if QA has none.
+> [the API key runbook](../../guides/api-keys.md) if QA has none.
 
 ## 4. Promote to production
 

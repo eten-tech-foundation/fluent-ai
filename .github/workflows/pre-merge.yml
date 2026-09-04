@@ -48,3 +48,17 @@ jobs:
                   API_BASE_URL: http://localhost:8000
                   API_SERVICE_KEY: test-service-key
               run: uv run pytest
+
+    docs-structure:
+        name: Docs Structure Check
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: ${{ !github.event.pull_request.draft }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            - name: Check docs structure
+              run: ./scripts/check-docs-structure.sh
