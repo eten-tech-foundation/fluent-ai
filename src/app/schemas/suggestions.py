@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class SuggestionTriggerRequest(BaseModel):
@@ -10,6 +10,17 @@ class SuggestionTriggerRequest(BaseModel):
     chapter_number: int = Field(alias="chapterNumber", gt=0)
     verse_start: int = Field(alias="verseStart", gt=0)
     verse_end: int = Field(alias="verseEnd", gt=0)
+    pericope_number: str | None = Field(
+        default=None, alias="pericopeNumber", min_length=1, max_length=100
+    )
+    pericope_set_id: int | None = Field(default=None, alias="pericopeSetId", gt=0)
+
+    @field_validator("pericope_number")
+    @classmethod
+    def _pericope_number_is_not_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("pericopeNumber must not be blank")
+        return value
 
     @model_validator(mode="after")
     def _verse_range_is_ordered(self) -> "SuggestionTriggerRequest":
@@ -22,3 +33,12 @@ class SuggestionTriggerRequest(BaseModel):
 
 class SuggestionTriggerResponse(BaseModel):
     message: str
+
+
+class SectionHeadingContext(BaseModel):
+    """Source metadata supplied by fluent-api for a heading-only job."""
+
+    pericope_number: str = Field(alias="pericopeNumber", min_length=1, max_length=100)
+    bible_text_id: int = Field(alias="bibleTextId", gt=0, strict=True)
+    pericope_set_id: int = Field(alias="pericopeSetId", gt=0, strict=True)
+    source_title: str = Field(alias="sourceTitle", min_length=1)
