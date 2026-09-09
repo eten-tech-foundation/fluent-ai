@@ -182,7 +182,26 @@ def test_suggestion_trigger_request_accepts_normal_book_code():
 def test_trigger_rejects_invalid_pericope_number(number):
     with pytest.raises(ValidationError):
         SuggestionTriggerRequest.model_validate(
-            {**_request().model_dump(), "pericopeNumber": number}
+            {**_request().model_dump(), "pericopeNumber": number, "pericopeSetId": 7}
+        )
+
+
+@pytest.mark.parametrize(
+    "heading_identity",
+    [
+        {"pericopeNumber": "1_4a"},
+        {"pericopeSetId": 7},
+        {"pericopeNumber": "1_4a", "pericopeSetId": None},
+        {"pericopeNumber": None, "pericopeSetId": 7},
+    ],
+)
+def test_trigger_rejects_incomplete_heading_identity(heading_identity):
+    with pytest.raises(ValidationError, match="must be provided together"):
+        SuggestionTriggerRequest.model_validate(
+            {
+                **_request().model_dump(by_alias=True, exclude_none=True),
+                **heading_identity,
+            }
         )
 
 
@@ -190,11 +209,15 @@ async def test_heading_jobs_keep_separate_dedup_identity_and_persist_metadata(
     db_session,
 ):
     verse_request = _request()
-    heading_request = verse_request.model_copy(
-        update={"pericope_number": "1.1", "pericope_set_id": 7}
+    heading_request = SuggestionTriggerRequest.model_validate(
+        {
+            **verse_request.model_dump(by_alias=True, exclude_none=True),
+            "pericopeNumber": "1_4a",
+            "pericopeSetId": 7,
+        }
     )
     changed_range = heading_request.model_copy(update={"verse_end": 2})
-    changed_pericope = heading_request.model_copy(update={"pericope_number": "1.2"})
+    changed_pericope = heading_request.model_copy(update={"pericope_number": "1_4b"})
     changed_set = heading_request.model_copy(update={"pericope_set_id": 8})
 
     response = await enqueue_suggestion_jobs(
@@ -217,5 +240,5 @@ async def test_heading_jobs_keep_separate_dedup_identity_and_persist_metadata(
     for job in jobs[1:]:
         assert job.dedup_key.startswith("ai_suggestion:heading:")
         assert len(job.dedup_key) <= 255
-    assert jobs[1].payload["pericopeNumber"] == "1.1"
+    assert jobs[1].payload["pericopeNumber"] == "1_4a"
     assert jobs[1].payload["pericopeSetId"] == 7

@@ -23,6 +23,14 @@ class SuggestionTriggerRequest(BaseModel):
         return value
 
     @model_validator(mode="after")
+    def _heading_identity_is_complete(self) -> "SuggestionTriggerRequest":
+        if (self.pericope_number is None) != (self.pericope_set_id is None):
+            raise ValueError(
+                "pericopeNumber and pericopeSetId must be provided together"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _verse_range_is_ordered(self) -> "SuggestionTriggerRequest":
         if self.verse_start > self.verse_end:
             raise ValueError(

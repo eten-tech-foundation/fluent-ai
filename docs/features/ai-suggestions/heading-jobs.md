@@ -1,10 +1,12 @@
 # Pericope heading suggestions
 
-The existing `POST /suggestions` batch accepts an optional `pericopeNumber`
-(nonblank, at most 100 characters). Its presence selects a heading-only job.
+The existing `POST /suggestions` batch accepts `pericopeNumber` (nonblank, at most
+100 characters) and `pericopeSetId` (positive integer) together for a heading-only
+job. Both fields must be omitted or null for an ordinary verse job; supplying
+only one is rejected.
 `projectUnitId`, `bibleId`, `bookCode`, `chapterNumber`, `verseStart`, and
-`verseEnd` remain required. `pericopeSetId` is optional on this request; the API
-includes it when enqueueing headings to bind the job to the selected source set.
+`verseEnd` remain required. The source set binds the heading job to the selected
+pericope set.
 
 Heading jobs have a separate deduplication key based on the complete request,
 including the verse range, pericope number, and source set. Requests without a
