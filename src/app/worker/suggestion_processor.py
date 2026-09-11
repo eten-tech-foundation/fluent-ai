@@ -29,6 +29,7 @@ Error Resilience:
 import asyncio
 from datetime import datetime, timedelta, timezone
 
+from pydantic import ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
@@ -39,7 +40,12 @@ from app.models.job import Job
 
 from app.core.ai_clients.google_gemini import GoogleGeminiClient
 from app.services.translation_service import TranslationService
-from app.schemas.translations import TranslateRequest, VerseToTranslate
+from app.schemas.suggestions import SectionHeadingContext
+from app.schemas.translations import (
+    TranslateHeadingRequest,
+    TranslateRequest,
+    VerseToTranslate,
+)
 from app.config import get_settings
 from app.core.constants import (
     WORKER_POLL_INTERVAL_SECONDS,
@@ -78,6 +84,8 @@ async def process_job(
         chapter_number = payload.get("chapterNumber")
         verse_start = payload.get("verseStart")
         verse_end = payload.get("verseEnd")
+        pericope_number = payload.get("pericopeNumber")
+        pericope_set_id = payload.get("pericopeSetId")
 
         settings = translation_service.settings
         api_base_url = settings.api_base_url.rstrip("/")
@@ -87,19 +95,25 @@ async def process_job(
             "Content-Type": "application/json",
         }
 
+        context_payload = {
+            "projectUnitId": project_unit_id,
+            "bibleId": bible_id,
+            "bookCode": book_code,
+            "chapterNumber": chapter_number,
+            "verseStart": verse_start,
+            "verseEnd": verse_end,
+        }
+        if pericope_number is not None:
+            context_payload["pericopeNumber"] = pericope_number
+            if pericope_set_id is not None:
+                context_payload["pericopeSetId"] = pericope_set_id
+
         async with httpx.AsyncClient() as client:
             # 1. Fetch context and source verses from API
             context_resp = await client.post(
                 f"{api_base_url}/ai-suggestions/internal/context",
                 headers=headers,
-                json={
-                    "projectUnitId": project_unit_id,
-                    "bibleId": bible_id,
-                    "bookCode": book_code,
-                    "chapterNumber": chapter_number,
-                    "verseStart": verse_start,
-                    "verseEnd": verse_end,
-                },
+                json=context_payload,
                 timeout=30.0,
             )
             try:
@@ -117,6 +131,43 @@ async def process_job(
             context_verses = context_data.get("contextVerses", [])
             source_verses = context_data.get("sourceVerses", [])
 
+            section_heading = None
+            if pericope_number is not None:
+                raw_heading = context_data.get("sectionHeading")
+                if raw_heading is None or (
+                    isinstance(raw_heading, dict)
+                    and (
+                        raw_heading.get("sourceTitle") is None
+                        or (
+                            isinstance(raw_heading.get("sourceTitle"), str)
+                            and not raw_heading["sourceTitle"].strip()
+                        )
+                    )
+                ):
+                    job.status = "completed"
+                    await db.commit()
+                    logger.info(
+                        f"Job {job.id}: no source heading available; skipping generation."
+                    )
+                    return
+                try:
+                    section_heading = SectionHeadingContext.model_validate(raw_heading)
+                except ValidationError as exc:
+                    raise NonRetryableJobError(
+                        "Invalid section heading context"
+                    ) from exc
+                if section_heading.pericope_number != pericope_number:
+                    raise NonRetryableJobError(
+                        "Section heading context does not match requested pericope"
+                    )
+                if (
+                    pericope_set_id is not None
+                    and section_heading.pericope_set_id != pericope_set_id
+                ):
+                    raise NonRetryableJobError(
+                        "Section heading context does not match requested pericope set"
+                    )
+
             if not source_verses:
                 job.status = "failed"
                 job.error_message = (
@@ -126,81 +177,113 @@ async def process_job(
                 await db.commit()
                 return
 
-            # 2. Build the translation request and call the LLM
-            request = TranslateRequest(
-                target_language_name=target_language_name,
-                context_verses=context_verses,
-                verses_to_translate=[
-                    VerseToTranslate(
-                        verse_id=f"{book_code}_{chapter_number}_{v['verse_number']}",
-                        source_text=v["text"],
+            if section_heading is not None:
+                if section_heading.bible_text_id != source_verses[0]["id"]:
+                    raise NonRetryableJobError(
+                        "Section heading must reference the first source verse"
                     )
-                    for v in source_verses
-                ],
-            )
+                heading_result = await translation_service.translate_heading(
+                    TranslateHeadingRequest(
+                        target_language_name=target_language_name,
+                        source_title=section_heading.source_title,
+                        context_verses=context_verses,
+                        source_verses=[
+                            VerseToTranslate(
+                                verse_id=f"{book_code}_{chapter_number}_{v['verse_number']}",
+                                source_text=v["text"],
+                            )
+                            for v in source_verses
+                        ],
+                    )
+                )
+                results_payload: dict[str, object] = {
+                    "items": [],
+                    "heading": {
+                        "projectUnitId": project_unit_id,
+                        "bibleTextId": section_heading.bible_text_id,
+                        "pericopeNumber": section_heading.pericope_number,
+                        "pericopeSetId": section_heading.pericope_set_id,
+                        "suggestedText": heading_result.suggested_text,
+                        "modelInfo": settings.google_ai_model,
+                    },
+                }
+            else:
+                # 2. Build the translation request and call the LLM
+                request = TranslateRequest(
+                    target_language_name=target_language_name,
+                    context_verses=context_verses,
+                    verses_to_translate=[
+                        VerseToTranslate(
+                            verse_id=f"{book_code}_{chapter_number}_{v['verse_number']}",
+                            source_text=v["text"],
+                        )
+                        for v in source_verses
+                    ],
+                )
 
-            result = await translation_service.translate_verses(request)
+                result = await translation_service.translate_verses(request)
 
-            # 3. Save each translated verse back via API. Guard each item
-            # individually — one hallucinated/malformed verse_id from the LLM
-            # should not fail the whole batch (see review finding #4).
-            items = []
-            parsed_verse_numbers = set()
-            for item in result.translations:
-                try:
-                    verse_num = int(item.verse_id.split("_")[-1])
-                except ValueError, AttributeError:
+                # 3. Save each translated verse back via API. Guard each item
+                # individually — one hallucinated/malformed verse_id from the LLM
+                # should not fail the whole batch (see review finding #4).
+                items = []
+                parsed_verse_numbers = set()
+                for item in result.translations:
+                    try:
+                        verse_num = int(item.verse_id.split("_")[-1])
+                    except ValueError, AttributeError:
+                        logger.warning(
+                            f"Job {job.id}: skipping unparseable verse_id "
+                            f"{item.verse_id!r} from LLM response."
+                        )
+                        continue
+
+                    parsed_verse_numbers.add(verse_num)
+
+                    bible_text = next(
+                        (v for v in source_verses if v["verse_number"] == verse_num),
+                        None,
+                    )
+
+                    if bible_text:
+                        items.append(
+                            {
+                                "bibleTextId": bible_text["id"],
+                                "projectUnitId": project_unit_id,
+                                "suggestedText": item.target_text,
+                                "modelInfo": translation_service.settings.google_ai_model,
+                            }
+                        )
+                    else:
+                        logger.warning(
+                            f"Job {job.id}: LLM returned verse_id for verse "
+                            f"{verse_num} which was not in the requested range; dropping."
+                        )
+
+                requested_verse_numbers = {v["verse_number"] for v in source_verses}
+                missing = requested_verse_numbers - parsed_verse_numbers
+                if missing:
                     logger.warning(
-                        f"Job {job.id}: skipping unparseable verse_id "
-                        f"{item.verse_id!r} from LLM response."
-                    )
-                    continue
-
-                parsed_verse_numbers.add(verse_num)
-
-                bible_text = next(
-                    (v for v in source_verses if v["verse_number"] == verse_num),
-                    None,
-                )
-
-                if bible_text:
-                    items.append(
-                        {
-                            "bibleTextId": bible_text["id"],
-                            "projectUnitId": project_unit_id,
-                            "suggestedText": item.target_text,
-                            "modelInfo": translation_service.settings.google_ai_model,
-                        }
-                    )
-                else:
-                    logger.warning(
-                        f"Job {job.id}: LLM returned verse_id for verse "
-                        f"{verse_num} which was not in the requested range; dropping."
+                        f"Job {job.id}: LLM omitted {len(missing)} of "
+                        f"{len(requested_verse_numbers)} requested verses: {sorted(missing)}"
                     )
 
-            requested_verse_numbers = {v["verse_number"] for v in source_verses}
-            missing = requested_verse_numbers - parsed_verse_numbers
-            if missing:
-                logger.warning(
-                    f"Job {job.id}: LLM omitted {len(missing)} of "
-                    f"{len(requested_verse_numbers)} requested verses: {sorted(missing)}"
-                )
-
-            if not items:
-                job.status = "failed"
-                job.error_message = (
-                    f"No valid translations to save for {book_code} "
-                    f"{chapter_number}:{verse_start}-{verse_end} — all "
-                    f"{len(result.translations)} LLM-returned item(s) were "
-                    f"malformed or out of the requested range."
-                )
-                await db.commit()
-                return
+                if not items:
+                    job.status = "failed"
+                    job.error_message = (
+                        f"No valid translations to save for {book_code} "
+                        f"{chapter_number}:{verse_start}-{verse_end} — all "
+                        f"{len(result.translations)} LLM-returned item(s) were "
+                        f"malformed or out of the requested range."
+                    )
+                    await db.commit()
+                    return
+                results_payload = {"items": items}
 
             save_resp = await client.post(
                 f"{api_base_url}/ai-suggestions/internal/results",
                 headers=headers,
-                json={"items": items},
+                json=results_payload,
                 timeout=30.0,
             )
             try:

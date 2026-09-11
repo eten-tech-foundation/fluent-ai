@@ -1,3 +1,6 @@
+from hashlib import sha256
+import json
+
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -6,6 +9,18 @@ from app.models.job import Job
 from app.schemas.suggestions import SuggestionTriggerRequest, SuggestionTriggerResponse
 
 logger = get_logger(__name__)
+
+
+def _dedup_key(request: SuggestionTriggerRequest) -> str:
+    if request.pericope_number is not None:
+        # Hash the complete identity to avoid separator ambiguity and stay within
+        # jobs.dedup_key's 255-character limit for arbitrary pericope numbers.
+        identity = json.dumps(request.model_dump(by_alias=True), sort_keys=True)
+        return f"ai_suggestion:heading:{sha256(identity.encode()).hexdigest()}"
+    return (
+        f"ai_suggestion:{request.project_unit_id}:{request.bible_id}:{request.book_code}:"
+        f"{request.chapter_number}:{request.verse_start}:{request.verse_end}"
+    )
 
 
 async def enqueue_suggestion_jobs(
@@ -21,11 +36,8 @@ async def enqueue_suggestion_jobs(
     jobs_data = [
         {
             "task_type": "ai_suggestion",
-            "payload": req.model_dump(by_alias=True),
-            "dedup_key": (
-                f"ai_suggestion:{req.project_unit_id}:{req.bible_id}:{req.book_code}:"
-                f"{req.chapter_number}:{req.verse_start}:{req.verse_end}"
-            ),
+            "payload": req.model_dump(by_alias=True, exclude_none=True),
+            "dedup_key": _dedup_key(req),
             "status": "queued",
             "retry_count": 0,
         }

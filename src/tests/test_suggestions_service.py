@@ -6,11 +6,13 @@ dedup-aware response reporting.
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import JSON, MetaData, Text, VARCHAR, event
+from pydantic import ValidationError
+from sqlalchemy import JSON, MetaData, Text, VARCHAR, event, select
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.schemas.suggestions import SuggestionTriggerRequest
+from app.models.job import Job
 from app.services.suggestions import enqueue_suggestion_jobs
 
 
@@ -97,7 +99,7 @@ def test_suggestion_trigger_request_accepts_camelcase_and_exposes_snake_case():
     assert req.verse_start == 4
     assert req.verse_end == 5
 
-    dumped = req.model_dump(by_alias=True)
+    dumped = req.model_dump(by_alias=True, exclude_none=True)
     assert dumped == {
         "projectUnitId": 1,
         "bibleId": 2,
@@ -174,3 +176,69 @@ def test_suggestion_trigger_request_accepts_normal_book_code():
         }
     )
     assert req.book_code == "MAT"
+
+
+@pytest.mark.parametrize("number", ["", "  ", "x" * 101])
+def test_trigger_rejects_invalid_pericope_number(number):
+    with pytest.raises(ValidationError):
+        SuggestionTriggerRequest.model_validate(
+            {**_request().model_dump(), "pericopeNumber": number, "pericopeSetId": 7}
+        )
+
+
+@pytest.mark.parametrize(
+    "heading_identity",
+    [
+        {"pericopeNumber": "1_4a"},
+        {"pericopeSetId": 7},
+        {"pericopeNumber": "1_4a", "pericopeSetId": None},
+        {"pericopeNumber": None, "pericopeSetId": 7},
+    ],
+)
+def test_trigger_rejects_incomplete_heading_identity(heading_identity):
+    with pytest.raises(ValidationError, match="must be provided together"):
+        SuggestionTriggerRequest.model_validate(
+            {
+                **_request().model_dump(by_alias=True, exclude_none=True),
+                **heading_identity,
+            }
+        )
+
+
+async def test_heading_jobs_keep_separate_dedup_identity_and_persist_metadata(
+    db_session,
+):
+    verse_request = _request()
+    heading_request = SuggestionTriggerRequest.model_validate(
+        {
+            **verse_request.model_dump(by_alias=True, exclude_none=True),
+            "pericopeNumber": "1_4a",
+            "pericopeSetId": 7,
+        }
+    )
+    changed_range = heading_request.model_copy(update={"verse_end": 2})
+    changed_pericope = heading_request.model_copy(update={"pericope_number": "1_4b"})
+    changed_set = heading_request.model_copy(update={"pericope_set_id": 8})
+
+    response = await enqueue_suggestion_jobs(
+        db_session,
+        [
+            verse_request,
+            heading_request,
+            heading_request,
+            changed_range,
+            changed_pericope,
+            changed_set,
+        ],
+    )
+
+    assert response.message == "Queued 5 of 6 jobs (1 duplicate skipped)"
+    jobs = (await db_session.execute(select(Job).order_by(Job.id))).scalars().all()
+    assert jobs[0].dedup_key == "ai_suggestion:1:1:MAT:1:1:1"
+    assert jobs[0].payload == verse_request.model_dump(by_alias=True, exclude_none=True)
+    assert "pericopeNumber" not in jobs[0].payload
+    for job in jobs[1:]:
+        assert job.dedup_key.startswith("ai_suggestion:heading:")
+        assert len(job.dedup_key) <= 255
+    assert jobs[1].payload["pericopeNumber"] == "1_4a"
+    assert jobs[1].payload["pericopeSetId"] == 7
