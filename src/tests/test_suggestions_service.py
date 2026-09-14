@@ -186,6 +186,18 @@ def test_trigger_rejects_invalid_pericope_number(number):
         )
 
 
+def test_trigger_strips_pericope_number():
+    request = SuggestionTriggerRequest.model_validate(
+        {
+            **_request().model_dump(by_alias=True, exclude_none=True),
+            "pericopeNumber": " 1_4a ",
+            "pericopeSetId": 7,
+        }
+    )
+
+    assert request.pericope_number == "1_4a"
+
+
 @pytest.mark.parametrize(
     "heading_identity",
     [

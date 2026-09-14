@@ -106,6 +106,23 @@ async def test_heading_job_uses_full_context_and_pushes_only_heading(
     service.translate_verses.assert_not_awaited()
 
 
+async def test_heading_job_sorts_source_verses_before_validating_the_first(
+    db_session, make_job, payload, context, service, api
+):
+    context["sourceVerses"].reverse()
+    job = await make_job(payload=payload)
+
+    await process_job(db_session, job, service)
+    await db_session.refresh(job)
+
+    assert job.status == "completed"
+    request = service.translate_heading.call_args.args[0]
+    assert [verse.verse_id for verse in request.source_verses] == [
+        "MAT_14_13",
+        "MAT_14_21",
+    ]
+
+
 @pytest.mark.parametrize("source_title", [None, "", "   "])
 async def test_heading_without_source_title_completes_without_generation(
     db_session, make_job, payload, context, service, api, source_title

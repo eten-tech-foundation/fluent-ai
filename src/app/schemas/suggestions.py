@@ -20,7 +20,7 @@ class SuggestionTriggerRequest(BaseModel):
     def _pericope_number_is_not_blank(cls, value: str | None) -> str | None:
         if value is not None and not value.strip():
             raise ValueError("pericopeNumber must not be blank")
-        return value
+        return value.strip() if value is not None else None
 
     @model_validator(mode="after")
     def _heading_identity_is_complete(self) -> "SuggestionTriggerRequest":

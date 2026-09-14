@@ -27,7 +27,9 @@ Error Resilience:
 """
 
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from pydantic import ValidationError
 from sqlalchemy import select, update
@@ -40,7 +42,7 @@ from app.models.job import Job
 
 from app.core.ai_clients.google_gemini import GoogleGeminiClient
 from app.services.translation_service import TranslationService
-from app.schemas.suggestions import SectionHeadingContext
+from app.schemas.suggestions import SectionHeadingContext, SuggestionTriggerRequest
 from app.schemas.translations import (
     TranslateHeadingRequest,
     TranslateRequest,
@@ -63,6 +65,182 @@ class NonRetryableJobError(Exception):
     raise this go straight to 'failed' without consuming retry attempts."""
 
 
+type SourceVerse = dict[str, Any]
+
+
+@dataclass(frozen=True)
+class _PipelineResult:
+    """Result payload or terminal failure produced by a job-specific pipeline."""
+
+    payload: dict[str, object] | None = None
+    failure_message: str | None = None
+
+
+def _verses_to_translate(
+    source_verses: list[SourceVerse], book_code: str, chapter_number: int
+) -> list[VerseToTranslate]:
+    """Build the shared source-verse request shape for either job type."""
+    return [
+        VerseToTranslate(
+            verse_id=f"{book_code}_{chapter_number}_{verse['verse_number']}",
+            source_text=verse["text"],
+        )
+        for verse in source_verses
+    ]
+
+
+def _validate_heading_context(
+    raw_heading: object,
+    pericope_number: str,
+    pericope_set_id: int | None,
+) -> SectionHeadingContext | None:
+    """Validate heading metadata, returning None when no source title exists."""
+    if raw_heading is None or (
+        isinstance(raw_heading, dict)
+        and (
+            raw_heading.get("sourceTitle") is None
+            or (
+                isinstance(raw_heading.get("sourceTitle"), str)
+                and not raw_heading["sourceTitle"].strip()
+            )
+        )
+    ):
+        return None
+
+    try:
+        section_heading = SectionHeadingContext.model_validate(raw_heading)
+    except ValidationError as exc:
+        raise NonRetryableJobError("Invalid section heading context") from exc
+    if section_heading.pericope_number != pericope_number:
+        raise NonRetryableJobError(
+            "Section heading context does not match requested pericope"
+        )
+    if section_heading.pericope_set_id != pericope_set_id:
+        raise NonRetryableJobError(
+            "Section heading context does not match requested pericope set"
+        )
+    return section_heading
+
+
+async def _process_heading_job(
+    *,
+    translation_service: TranslationService,
+    section_heading: SectionHeadingContext,
+    target_language_name: str,
+    context_verses: list[Any],
+    source_verses: list[SourceVerse],
+    book_code: str,
+    chapter_number: int,
+    project_unit_id: int,
+    model_info: str,
+) -> _PipelineResult:
+    """Translate one heading and build the heading-only results payload."""
+    if section_heading.bible_text_id != source_verses[0]["id"]:
+        raise NonRetryableJobError(
+            "Section heading must reference the first source verse"
+        )
+
+    heading_result = await translation_service.translate_heading(
+        TranslateHeadingRequest(
+            target_language_name=target_language_name,
+            source_title=section_heading.source_title,
+            context_verses=context_verses,
+            source_verses=_verses_to_translate(
+                source_verses, book_code, chapter_number
+            ),
+        )
+    )
+    return _PipelineResult(
+        payload={
+            "items": [],
+            "heading": {
+                "projectUnitId": project_unit_id,
+                "bibleTextId": section_heading.bible_text_id,
+                "pericopeNumber": section_heading.pericope_number,
+                "pericopeSetId": section_heading.pericope_set_id,
+                "suggestedText": heading_result.suggested_text,
+                "modelInfo": model_info,
+            },
+        }
+    )
+
+
+async def _process_verse_job(
+    *,
+    translation_service: TranslationService,
+    target_language_name: str,
+    context_verses: list[Any],
+    source_verses: list[SourceVerse],
+    book_code: str,
+    chapter_number: int,
+    verse_start: int,
+    verse_end: int,
+    project_unit_id: int,
+    job_id: int,
+    model_info: str,
+) -> _PipelineResult:
+    """Translate verses and build the validated verse results payload."""
+    request = TranslateRequest(
+        target_language_name=target_language_name,
+        context_verses=context_verses,
+        verses_to_translate=_verses_to_translate(
+            source_verses, book_code, chapter_number
+        ),
+    )
+    result = await translation_service.translate_verses(request)
+
+    items = []
+    parsed_verse_numbers = set()
+    for item in result.translations:
+        try:
+            verse_num = int(item.verse_id.split("_")[-1])
+        except ValueError, AttributeError:
+            logger.warning(
+                f"Job {job_id}: skipping unparseable verse_id "
+                f"{item.verse_id!r} from LLM response."
+            )
+            continue
+
+        parsed_verse_numbers.add(verse_num)
+        bible_text = next(
+            (verse for verse in source_verses if verse["verse_number"] == verse_num),
+            None,
+        )
+        if bible_text:
+            items.append(
+                {
+                    "bibleTextId": bible_text["id"],
+                    "projectUnitId": project_unit_id,
+                    "suggestedText": item.target_text,
+                    "modelInfo": model_info,
+                }
+            )
+        else:
+            logger.warning(
+                f"Job {job_id}: LLM returned verse_id for verse "
+                f"{verse_num} which was not in the requested range; dropping."
+            )
+
+    requested_verse_numbers = {verse["verse_number"] for verse in source_verses}
+    missing = requested_verse_numbers - parsed_verse_numbers
+    if missing:
+        logger.warning(
+            f"Job {job_id}: LLM omitted {len(missing)} of "
+            f"{len(requested_verse_numbers)} requested verses: {sorted(missing)}"
+        )
+
+    if not items:
+        return _PipelineResult(
+            failure_message=(
+                f"No valid translations to save for {book_code} "
+                f"{chapter_number}:{verse_start}-{verse_end} — all "
+                f"{len(result.translations)} LLM-returned item(s) were "
+                "malformed or out of the requested range."
+            )
+        )
+    return _PipelineResult(payload={"items": items})
+
+
 async def process_job(
     db: AsyncSession,
     job: Job,
@@ -77,15 +255,17 @@ async def process_job(
         job.error_message = None
         await db.commit()
 
-        payload = job.payload
-        project_unit_id = payload.get("projectUnitId")
-        bible_id = payload.get("bibleId")
-        book_code = payload.get("bookCode")
-        chapter_number = payload.get("chapterNumber")
-        verse_start = payload.get("verseStart")
-        verse_end = payload.get("verseEnd")
-        pericope_number = payload.get("pericopeNumber")
-        pericope_set_id = payload.get("pericopeSetId")
+        try:
+            trigger_request = SuggestionTriggerRequest.model_validate(job.payload)
+        except ValidationError as exc:
+            raise NonRetryableJobError("Invalid suggestion job payload") from exc
+        project_unit_id = trigger_request.project_unit_id
+        book_code = trigger_request.book_code
+        chapter_number = trigger_request.chapter_number
+        verse_start = trigger_request.verse_start
+        verse_end = trigger_request.verse_end
+        pericope_number = trigger_request.pericope_number
+        pericope_set_id = trigger_request.pericope_set_id
 
         settings = translation_service.settings
         api_base_url = settings.api_base_url.rstrip("/")
@@ -95,18 +275,7 @@ async def process_job(
             "Content-Type": "application/json",
         }
 
-        context_payload = {
-            "projectUnitId": project_unit_id,
-            "bibleId": bible_id,
-            "bookCode": book_code,
-            "chapterNumber": chapter_number,
-            "verseStart": verse_start,
-            "verseEnd": verse_end,
-        }
-        if pericope_number is not None:
-            context_payload["pericopeNumber"] = pericope_number
-            if pericope_set_id is not None:
-                context_payload["pericopeSetId"] = pericope_set_id
+        context_payload = trigger_request.model_dump(by_alias=True, exclude_none=True)
 
         async with httpx.AsyncClient() as client:
             # 1. Fetch context and source verses from API
@@ -133,40 +302,18 @@ async def process_job(
 
             section_heading = None
             if pericope_number is not None:
-                raw_heading = context_data.get("sectionHeading")
-                if raw_heading is None or (
-                    isinstance(raw_heading, dict)
-                    and (
-                        raw_heading.get("sourceTitle") is None
-                        or (
-                            isinstance(raw_heading.get("sourceTitle"), str)
-                            and not raw_heading["sourceTitle"].strip()
-                        )
-                    )
-                ):
+                section_heading = _validate_heading_context(
+                    context_data.get("sectionHeading"),
+                    pericope_number,
+                    pericope_set_id,
+                )
+                if section_heading is None:
                     job.status = "completed"
                     await db.commit()
                     logger.info(
                         f"Job {job.id}: no source heading available; skipping generation."
                     )
                     return
-                try:
-                    section_heading = SectionHeadingContext.model_validate(raw_heading)
-                except ValidationError as exc:
-                    raise NonRetryableJobError(
-                        "Invalid section heading context"
-                    ) from exc
-                if section_heading.pericope_number != pericope_number:
-                    raise NonRetryableJobError(
-                        "Section heading context does not match requested pericope"
-                    )
-                if (
-                    pericope_set_id is not None
-                    and section_heading.pericope_set_id != pericope_set_id
-                ):
-                    raise NonRetryableJobError(
-                        "Section heading context does not match requested pericope set"
-                    )
 
             if not source_verses:
                 job.status = "failed"
@@ -177,113 +324,48 @@ async def process_job(
                 await db.commit()
                 return
 
+            source_verses = sorted(
+                source_verses, key=lambda verse: verse["verse_number"]
+            )
             if section_heading is not None:
-                if section_heading.bible_text_id != source_verses[0]["id"]:
-                    raise NonRetryableJobError(
-                        "Section heading must reference the first source verse"
-                    )
-                heading_result = await translation_service.translate_heading(
-                    TranslateHeadingRequest(
-                        target_language_name=target_language_name,
-                        source_title=section_heading.source_title,
-                        context_verses=context_verses,
-                        source_verses=[
-                            VerseToTranslate(
-                                verse_id=f"{book_code}_{chapter_number}_{v['verse_number']}",
-                                source_text=v["text"],
-                            )
-                            for v in source_verses
-                        ],
-                    )
-                )
-                results_payload: dict[str, object] = {
-                    "items": [],
-                    "heading": {
-                        "projectUnitId": project_unit_id,
-                        "bibleTextId": section_heading.bible_text_id,
-                        "pericopeNumber": section_heading.pericope_number,
-                        "pericopeSetId": section_heading.pericope_set_id,
-                        "suggestedText": heading_result.suggested_text,
-                        "modelInfo": settings.google_ai_model,
-                    },
-                }
-            else:
-                # 2. Build the translation request and call the LLM
-                request = TranslateRequest(
+                pipeline_result = await _process_heading_job(
+                    translation_service=translation_service,
+                    section_heading=section_heading,
                     target_language_name=target_language_name,
                     context_verses=context_verses,
-                    verses_to_translate=[
-                        VerseToTranslate(
-                            verse_id=f"{book_code}_{chapter_number}_{v['verse_number']}",
-                            source_text=v["text"],
-                        )
-                        for v in source_verses
-                    ],
+                    source_verses=source_verses,
+                    book_code=book_code,
+                    chapter_number=chapter_number,
+                    project_unit_id=project_unit_id,
+                    model_info=settings.google_ai_model,
+                )
+            else:
+                pipeline_result = await _process_verse_job(
+                    translation_service=translation_service,
+                    target_language_name=target_language_name,
+                    context_verses=context_verses,
+                    source_verses=source_verses,
+                    book_code=book_code,
+                    chapter_number=chapter_number,
+                    verse_start=verse_start,
+                    verse_end=verse_end,
+                    project_unit_id=project_unit_id,
+                    job_id=job.id,
+                    model_info=settings.google_ai_model,
                 )
 
-                result = await translation_service.translate_verses(request)
-
-                # 3. Save each translated verse back via API. Guard each item
-                # individually — one hallucinated/malformed verse_id from the LLM
-                # should not fail the whole batch (see review finding #4).
-                items = []
-                parsed_verse_numbers = set()
-                for item in result.translations:
-                    try:
-                        verse_num = int(item.verse_id.split("_")[-1])
-                    except ValueError, AttributeError:
-                        logger.warning(
-                            f"Job {job.id}: skipping unparseable verse_id "
-                            f"{item.verse_id!r} from LLM response."
-                        )
-                        continue
-
-                    parsed_verse_numbers.add(verse_num)
-
-                    bible_text = next(
-                        (v for v in source_verses if v["verse_number"] == verse_num),
-                        None,
-                    )
-
-                    if bible_text:
-                        items.append(
-                            {
-                                "bibleTextId": bible_text["id"],
-                                "projectUnitId": project_unit_id,
-                                "suggestedText": item.target_text,
-                                "modelInfo": translation_service.settings.google_ai_model,
-                            }
-                        )
-                    else:
-                        logger.warning(
-                            f"Job {job.id}: LLM returned verse_id for verse "
-                            f"{verse_num} which was not in the requested range; dropping."
-                        )
-
-                requested_verse_numbers = {v["verse_number"] for v in source_verses}
-                missing = requested_verse_numbers - parsed_verse_numbers
-                if missing:
-                    logger.warning(
-                        f"Job {job.id}: LLM omitted {len(missing)} of "
-                        f"{len(requested_verse_numbers)} requested verses: {sorted(missing)}"
-                    )
-
-                if not items:
-                    job.status = "failed"
-                    job.error_message = (
-                        f"No valid translations to save for {book_code} "
-                        f"{chapter_number}:{verse_start}-{verse_end} — all "
-                        f"{len(result.translations)} LLM-returned item(s) were "
-                        f"malformed or out of the requested range."
-                    )
-                    await db.commit()
-                    return
-                results_payload = {"items": items}
+            if pipeline_result.failure_message is not None:
+                job.status = "failed"
+                job.error_message = pipeline_result.failure_message
+                await db.commit()
+                return
+            if pipeline_result.payload is None:
+                raise RuntimeError("Job pipeline returned no result")
 
             save_resp = await client.post(
                 f"{api_base_url}/ai-suggestions/internal/results",
                 headers=headers,
-                json=results_payload,
+                json=pipeline_result.payload,
                 timeout=30.0,
             )
             try:
