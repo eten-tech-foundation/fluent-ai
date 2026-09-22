@@ -1,14 +1,14 @@
 # Source-TTS capacity: how many verses at once, and how long may one be?
 
 **Deploying the whole feature?** Start with
-[`source-tts-operations.md`](https://github.com/eten-tech-foundation/fluent-web/blob/main/docs/proposals/source-tts/source-tts-operations.md)
+[`source-tts-operations.md`](https://github.com/eten-tech-foundation/fluent-web/blob/main/docs/features/source-tts/source-tts-operations.md)
 in fluent-web — the checklist, the open decisions, and how to prove the artifact store is actually
 serving. This file is the sizing half of that.
 
 **Who this is for:** whoever deploys fluent-ai and knows the container's real memory limit. It answers
 one question — _what do I set, to support what?_ — and it is the single place the sizing evidence
 lives. **It deliberately does not state the current values.** Those are in
-[`src/app/config.py`](../src/app/config.py) and [`.env.example`](../.env.example); a number repeated
+[`src/app/config.py`](../../../src/app/config.py) and [`.env.example`](../../../.env.example); a number repeated
 in two places drifts.
 
 ## There is really only one dial
@@ -42,8 +42,8 @@ Hence: one dial, **how long a verse do we support**, and everything else follows
 Measured 2026-08-16 over the eBible corpus — **1,005 translations, 11,227,230 verses** — counting
 Unicode codepoints, the same way the service counts. Protestant canon only, and excluding
 range-merges (translations that put `GEN 27:1-40` in the `27:1` slot); both filters matter, since the
-unfiltered maximum is 10,063 and misleading. Reproduce with
-`self-notes/harness/source-tts/tools/verse_length_survey.py` in the harness repo.
+unfiltered maximum is 10,063 and misleading. Reproduce by counting Unicode codepoints in the
+Protestant-canon eBible corpus after excluding merged verse ranges.
 
 | | characters |
 | --- | ---: |
@@ -131,7 +131,7 @@ consistent pair this should be unreachable, so seeing it means either the bytes-
 wrong for this corpus's script, or the provider is emitting audio nobody asked for. It is the alarm
 attached to the assumption most likely to be wrong; keep the two codes distinct.
 
-## What the compression tail costs on top (phase 08)
+## What the compression tail costs on top
 
 The numbers above account for the **generation heap** — the raw PCM a clip occupies while it is being
 synthesized and streamed. The compression tail adds a second, smaller consumer that the container's
@@ -150,7 +150,7 @@ memory limit has to cover as well:
 
 None of this is charged against `TTS_MAX_BUFFERED_BYTES`, which counts generation buffers only. It is
 part of what §8.4's "roughly ×1.5 headroom over the budget" is for, and one more reason the container
-limit (**B8**, still unanswered) is the number worth getting.
+limit, still to be confirmed for deployment, is the number worth getting.
 
 ## Where the encoder comes from
 
@@ -162,7 +162,7 @@ Dockerfiles therefore install `ffmpeg=8.1.2-r0` themselves, and `resolve_ffmpeg_
 wheel, then `PATH`, then a bare name that fails at the first encode. `TTS_FFMPEG_BINARY` overrides
 all three.
 
-That was found by running the image, not by reading (2026-08-16, phase 09). Before the fix, the
+That was found by running the image, not by reading (2026-08-16). Before the fix, the
 raise escaped `TtsService.__init__` and took every TTS route down; now a missing encoder degrades
 only the tail.
 
@@ -170,7 +170,7 @@ only the tail.
 listener hears the whole verse, but nothing is ever uploaded — so no `302` is reachable and **every
 listen re-bills the provider**. Durability, not correctness, and expensive.
 
-Two properties of the packaging are still the team's to weigh (**B5**, re-opened): Alpine's ffmpeg
+Two properties of the packaging are still the team's to weigh: Alpine's ffmpeg
 adds about **129 MB uncompressed** (the full libav video stack, for a 404 KB audio-only CLI) and is
 GPL, as is the wheel's binary (`--enable-gpl --enable-version3`). Invoking either as a subprocess
 rather than linking it is the ordinary way to use ffmpeg without the GPL reaching this service's own
