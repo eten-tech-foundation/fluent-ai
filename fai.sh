@@ -462,7 +462,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   # ── Development commands ───────────────────────────────────────────────────
 
   test)
-    exec_ai uv run pytest tests/ -v "$@"
+    exec_ai uv run pytest -v "$@"
     ;;
 
   lint)

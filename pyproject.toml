@@ -35,7 +35,7 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["src/tests"]
+testpaths = ["src/tests", "tests"]
 markers = [
     # Opt-in only: `tests/tts/conftest.py` skips these unless TTS_SMOKE_REAL=1,
     # because they bill a real provider and write to a real bucket.
