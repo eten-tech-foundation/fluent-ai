@@ -13,6 +13,7 @@ the base64 decode and the format assertion are all this module's own code.
 """
 
 import base64
+from typing import Literal
 
 import pytest
 from google.genai import interactions as sdk
@@ -29,7 +30,7 @@ PCM = b"\x01\x02" * 960
 def audio_event(
     data: bytes = PCM,
     *,
-    mime_type: str = "audio/l16",
+    mime_type: Literal["audio/l16", "audio/wav"] = "audio/l16",
     sample_rate: int | None = 24000,
     channels: int | None = 1,
 ) -> sdk.StepDelta:

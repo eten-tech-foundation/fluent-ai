@@ -90,7 +90,7 @@ class TestConditionalPut:
 
     @pytest.mark.asyncio
     async def test_transport_failures_become_a_storage_error(self, store, client):
-        client.fail_next_put_with = EndpointConnectionError(  # type: ignore[assignment]
+        client.fail_next_put_with = EndpointConnectionError(
             endpoint_url="https://example.invalid"
         )
         with pytest.raises(ExternalServiceException):

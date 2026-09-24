@@ -24,7 +24,7 @@ readers during a round-trip. A botocore client is safe to share across threads
 import asyncio
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
@@ -35,8 +35,6 @@ from app.logging.utils import get_logger
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from mypy_boto3_s3.client import S3Client
-
     from app.config import Settings
 
 
@@ -80,6 +78,24 @@ def serialize_json_body(body: dict[str, Any]) -> bytes:
     return json.dumps(body, ensure_ascii=False, sort_keys=True).encode("utf-8")
 
 
+class ArtifactClient(Protocol):
+    """The S3 calls used by this store, also implemented by the test fake."""
+
+    def put_object(
+        self,
+        *,
+        Bucket: str,
+        Key: str,
+        Body: bytes,
+        ContentType: str,
+        IfNoneMatch: str = ...,
+    ) -> Any: ...
+
+    def head_object(self, *, Bucket: str, Key: str) -> Any: ...
+
+    def get_object(self, *, Bucket: str, Key: str) -> Any: ...
+
+
 class TtsArtifactStore:
     """Thin, purpose-built wrapper over the S3 API of one R2 bucket.
 
@@ -88,7 +104,9 @@ class TtsArtifactStore:
     it owns the key layout, so no caller has to know how a hash becomes a key.
     """
 
-    def __init__(self, *, client: "S3Client", bucket: str, prefix: str = "") -> None:
+    def __init__(
+        self, *, client: ArtifactClient, bucket: str, prefix: str = ""
+    ) -> None:
         self._client = client
         self._bucket = bucket
         self._prefix = prefix

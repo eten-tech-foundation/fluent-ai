@@ -482,7 +482,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     ;;
 
   typecheck)
-    exec_ai uv run mypy src "$@"
+    exec_ai uv run mypy . "$@"
     ;;
 
   run)

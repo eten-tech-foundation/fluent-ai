@@ -256,10 +256,10 @@ class TestConcurrencyBound:
                     nonlocal live
                     live -= 1
 
-            process.communicate = communicate  # type: ignore[method-assign]
+            process.communicate = communicate
             return process
 
-        asyncio.create_subprocess_exec = counting  # type: ignore[assignment]
+        asyncio.create_subprocess_exec = counting
         try:
             await asyncio.gather(
                 *(
@@ -270,6 +270,6 @@ class TestConcurrencyBound:
                 )
             )
         finally:
-            asyncio.create_subprocess_exec = original  # type: ignore[assignment]
+            asyncio.create_subprocess_exec = original
 
         assert peak == 1

@@ -72,7 +72,7 @@ def service_without_tail(r2, provider, settings) -> TtsService:
     return TtsService(
         settings=settings,
         store=TtsArtifactStore(
-            client=r2,  # type: ignore[arg-type] - fake with the same surface
+            client=r2,
             bucket=settings.r2_tts_bucket or "bucket",
             prefix=settings.tts_r2_prefix,
         ),
@@ -84,7 +84,7 @@ def service_without_tail(r2, provider, settings) -> TtsService:
 @pytest.fixture
 def service(r2, provider, settings, compressor) -> TtsService:
     store = TtsArtifactStore(
-        client=r2,  # type: ignore[arg-type] - fake with the same call surface
+        client=r2,
         bucket=settings.r2_tts_bucket or "bucket",
         prefix=settings.tts_r2_prefix,
     )
@@ -209,7 +209,7 @@ class TestRungOrder:
         second = await service.resolve_audio(digest)
 
         assert isinstance(second, AudioStream)
-        assert second.entry is first.entry  # type: ignore[union-attr]
+        assert second.entry is first.entry
         assert r2.head_calls == []  # rung 1 short-circuits before any HEAD
         provider.release(2)
 
@@ -220,7 +220,7 @@ class TestRungOrder:
         client cannot classify; 503 is a state it already knows how to wait
         out."""
         settings = tts_settings(tts_public_audio_base_url=None)
-        store = TtsArtifactStore(client=r2, bucket="b", prefix=settings.tts_r2_prefix)  # type: ignore[arg-type]
+        store = TtsArtifactStore(client=r2, bucket="b", prefix=settings.tts_r2_prefix)
         service = TtsService(
             settings=settings,
             store=store,
@@ -339,7 +339,7 @@ class TestDedupAndAdmission:
             *(service.resolve_audio(digest) for _ in range(5))
         )
 
-        entries = {id(r.entry) for r in resolutions}  # type: ignore[union-attr]
+        entries = {id(r.entry) for r in resolutions}
         assert len(entries) == 1
         assert len(provider.synthesize_calls) == 1
         assert service.heap.buffered_bytes == service.heap.max_clip_bytes
@@ -455,7 +455,7 @@ class TestFailure:
         provider.fail_after = 0
         first = await service.resolve_audio(digest)
         with pytest.raises(GenerationFailed):
-            await drain(first)  # type: ignore[arg-type]
+            await drain(first)
 
         provider.fail_after = None
         second = await service.resolve_audio(digest)
@@ -474,7 +474,7 @@ class TestFailure:
         was already being billed and streamed when it outgrew the ceiling,
         where `TTS_TEXT_TOO_LONG` means `generate` refused before any spend."""
         settings = tts_settings(tts_max_clip_bytes=len(PCM_CHUNK) + 1)
-        store = TtsArtifactStore(client=r2, bucket="b", prefix=settings.tts_r2_prefix)  # type: ignore[arg-type]
+        store = TtsArtifactStore(client=r2, bucket="b", prefix=settings.tts_r2_prefix)
         service = TtsService(
             settings=settings,
             store=store,
@@ -639,7 +639,7 @@ class TestGenerateShortCircuit:
         """The extension is the recipe's, not a constant — which is the whole
         reason a caller can read the format off the URL at all."""
         settings = tts_settings(tts_default_format="mp3")
-        store = TtsArtifactStore(client=r2, bucket="b", prefix=settings.tts_r2_prefix)  # type: ignore[arg-type]
+        store = TtsArtifactStore(client=r2, bucket="b", prefix=settings.tts_r2_prefix)
         service = TtsService(
             settings=settings, store=store, provider=provider, compressor=compressor
         )
@@ -658,7 +658,7 @@ class TestGenerateShortCircuit:
         its whole job is to authorize. The relative URL still works; the 503
         then happens later, at the redirect, exactly as it did before."""
         settings = tts_settings(tts_public_audio_base_url=None)
-        store = TtsArtifactStore(client=r2, bucket="b", prefix=settings.tts_r2_prefix)  # type: ignore[arg-type]
+        store = TtsArtifactStore(client=r2, bucket="b", prefix=settings.tts_r2_prefix)
         service = TtsService(
             settings=settings, store=store, provider=provider, compressor=compressor
         )

@@ -14,7 +14,7 @@ import hashlib
 import io
 from typing import Any
 
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from app.config import MAX_TEXT_CHARS, Settings, get_settings
 from app.services.tts.compression import CompressedClip
@@ -68,7 +68,13 @@ def _client_error(code: str, status_code: int, operation: str) -> ClientError:
     return ClientError(
         {
             "Error": {"Code": code, "Message": code},
-            "ResponseMetadata": {"HTTPStatusCode": status_code},
+            "ResponseMetadata": {
+                "HTTPStatusCode": status_code,
+                "HTTPHeaders": {},
+                "HostId": "",
+                "RequestId": "",
+                "RetryAttempts": 0,
+            },
         },
         operation,
     )
@@ -89,7 +95,7 @@ class FakeS3Client:
         self.put_calls: list[dict[str, Any]] = []
         self.head_calls: list[str] = []
         self.get_calls: list[str] = []
-        self.fail_next_put_with: ClientError | None = None
+        self.fail_next_put_with: ClientError | BotoCoreError | None = None
 
     # -- writes ---------------------------------------------------------- #
 

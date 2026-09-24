@@ -70,7 +70,7 @@ def settings():
 @pytest.fixture
 def service(r2, provider, settings) -> TtsService:
     store = TtsArtifactStore(
-        client=r2,  # type: ignore[arg-type] - fake with the same call surface
+        client=r2,
         bucket=settings.r2_tts_bucket or "bucket",
         prefix=settings.tts_r2_prefix,
     )

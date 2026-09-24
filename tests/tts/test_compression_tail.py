@@ -57,7 +57,7 @@ def service(r2, provider, settings, compressor) -> TtsService:
     return TtsService(
         settings=settings,
         store=TtsArtifactStore(
-            client=r2,  # type: ignore[arg-type] - fake with the same call surface
+            client=r2,
             bucket=settings.r2_tts_bucket or "bucket",
             prefix=settings.tts_r2_prefix,
         ),
@@ -218,7 +218,7 @@ class TestSkippingWork:
             }
             return await original_compress(*args, **kwargs)
 
-        compressor.compress = plant_then_compress  # type: ignore[method-assign]
+        compressor.compress = plant_then_compress
 
         await listen(service, digest)
 
@@ -238,7 +238,7 @@ class TestFailuresNeverCostTheClip:
         service = TtsService(
             settings=settings,
             store=TtsArtifactStore(
-                client=r2,  # type: ignore[arg-type] - fake with the same surface
+                client=r2,
                 bucket=settings.r2_tts_bucket or "bucket",
                 prefix=settings.tts_r2_prefix,
             ),
@@ -267,7 +267,7 @@ class TestFailuresNeverCostTheClip:
         service = TtsService(
             settings=settings,
             store=TtsArtifactStore(
-                client=r2,  # type: ignore[arg-type] - fake with the same surface
+                client=r2,
                 bucket=settings.r2_tts_bucket or "bucket",
                 prefix=settings.tts_r2_prefix,
             ),
@@ -301,7 +301,7 @@ class TestFailuresNeverCostTheClip:
                 raise RuntimeError("receipt write failed")
             return original_put(**kwargs)
 
-        r2.put_object = fail_receipts  # type: ignore[method-assign]
+        r2.put_object = fail_receipts
 
         await listen(service, digest)
 

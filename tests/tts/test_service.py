@@ -37,7 +37,7 @@ def r2() -> FakeS3Client:
 def service(r2) -> TtsService:
     settings = tts_settings()
     store = TtsArtifactStore(
-        client=r2,  # type: ignore[arg-type] - fake with the same call surface
+        client=r2,
         bucket="fluent-tts-test",
         prefix=settings.tts_r2_prefix,
     )
@@ -146,7 +146,7 @@ class TestLimitPairing:
     def test_an_override_that_reopens_the_gap_is_logged(self, r2, caplog):
         settings = tts_settings(tts_max_text_length=20_000)
         store = TtsArtifactStore(
-            client=r2,  # type: ignore[arg-type]
+            client=r2,
             bucket="fluent-tts-test",
             prefix=settings.tts_r2_prefix,
         )
@@ -164,7 +164,7 @@ class TestLimitPairing:
     def test_agreeing_limits_say_nothing(self, r2, caplog):
         settings = tts_settings()
         store = TtsArtifactStore(
-            client=r2,  # type: ignore[arg-type]
+            client=r2,
             bucket="fluent-tts-test",
             prefix=settings.tts_r2_prefix,
         )
