@@ -420,6 +420,9 @@ class TestFailure:
         excinfo.value.__traceback__ = None
         del excinfo, resolution
         gc.collect()
+        # The task's done-callback drops its last entry reference, then the
+        # finalizer schedules counter/semaphore release for the following tick.
+        await asyncio.sleep(0)
         await asyncio.sleep(0)
         assert service.heap.buffered_bytes == 0
 
@@ -490,6 +493,29 @@ class TestFailure:
 
         assert resolution.entry.error == ErrorCode.TTS_CLIP_TOO_LONG
         assert len(resolution.entry.buffer) <= settings.tts_max_clip_bytes
+        assert provider.closed_streams == 1
+
+    async def test_generation_timeout_closes_the_provider_stream(
+        self, r2, provider, settings
+    ):
+        settings = tts_settings(tts_generation_timeout_seconds=0.2)
+        provider.paced = True
+        store = TtsArtifactStore(client=r2, bucket="b", prefix=settings.tts_r2_prefix)
+        service = TtsService(
+            settings=settings,
+            store=store,
+            provider=provider,
+            compressor=FakeCompressor(),
+        )
+        digest = authorize(r2, settings, provider)
+        resolution = await service.resolve_audio(digest)
+        await asyncio.sleep(0)  # let the provider start waiting for a chunk
+
+        with pytest.raises(GenerationFailed) as excinfo:
+            await asyncio.wait_for(drain(resolution), timeout=1)
+
+        assert excinfo.value.reason == "TTS_GENERATION_TIMEOUT"
+        assert provider.closed_streams == 1
 
     async def test_attaching_to_an_already_failed_entry_is_a_502(
         self, service, r2, settings, provider
@@ -545,6 +571,7 @@ class TestShutdown:
         assert excinfo.value.reason == "cancelled"
         assert entry.state == "failed"
         assert task is not None and task.cancelled()
+        assert provider.closed_streams == 1
         # Dropped, so the client's retry against the restarted process (or
         # another replica) re-enters through admission (§8.3).
         assert service.heap.get(digest) is None

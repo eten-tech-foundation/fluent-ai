@@ -313,14 +313,14 @@ class TestAccounting:
     async def test_the_entry_drains_and_its_bytes_come_back(
         self, service, r2, settings, provider
     ):
-        """§9.2. The slot is released when the buffer is, by refcount — so
-        "the tail finished" and "the memory came back" are the same event only
-        once every reader has let go.
+        """§9.2. The buffer dies when the last reader lets go; its finalizer
+        schedules the slot and accounting release on the next loop turn.
         """
         digest = authorize(r2, settings, provider)
         before = service.heap.buffered_bytes
 
         await listen(service, digest)
+        await asyncio.sleep(0)
 
         assert service.heap.get(digest) is None  # out of the primary dict
         assert service.heap.buffered_bytes == before

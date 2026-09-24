@@ -225,7 +225,7 @@ async def test_a_verse_is_synthesized_streamed_compressed_stored_and_served(
         client.delete_object(Bucket=settings.r2_tts_bucket, Key=key)
     _report("arrange", artifact=digest[:16] + "…", **keys)
 
-    service = get_tts_service()
+    service = await get_tts_service()
     try:
         # ------------------------------------------------------------ #
         # 1. generate — the sidecar lands, no audio is produced (T8).

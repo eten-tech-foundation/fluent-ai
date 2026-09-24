@@ -8,7 +8,7 @@ recipe into a stream of PCM bytes and tells the identity layer which protocol
 fields it ignores — nothing else.
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -86,7 +86,9 @@ class TtsProvider(Protocol):
         """
         ...
 
-    def synthesize_stream(self, request: TtsProviderRequest) -> AsyncIterator[bytes]:
+    def synthesize_stream(
+        self, request: TtsProviderRequest
+    ) -> AsyncGenerator[bytes, None]:
         """Yield raw PCM audio chunks as the provider produces them.
 
         Streaming rather than returning bytes is load-bearing: the first
@@ -98,5 +100,8 @@ class TtsProvider(Protocol):
         silent corruption §7.2.1 exists to prevent — so a provider that detects
         trouble mid-stream, including an error arriving *in-band* as an
         ordinary iteration value, must raise rather than return.
+
+        The stream must also be closable: a per-clip limit, timeout, or shutdown
+        must stop the upstream request before it can keep synthesizing.
         """
         ...

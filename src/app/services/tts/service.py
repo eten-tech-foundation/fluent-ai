@@ -18,6 +18,7 @@ What `generate` deliberately does NOT do, and must never start doing:
 """
 
 import asyncio
+from contextlib import aclosing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
@@ -141,8 +142,8 @@ class TtsService:
         bytes. Both are overridable, and overriding one alone reopens the gap
         this pairing closes: a text in between passes validation, gets billed,
         synthesizes for minutes and is then killed mid-stream, where a
-        consistent pair would have refused it for free (docs/
-        source-tts-capacity.md).
+        consistent pair would have refused it for free
+        (docs/features/source-tts/source-tts-capacity.md).
 
         A warning and not a refusal to boot — a wide character limit is a
         wasteful configuration, not an unsafe one, and TTS misconfiguration must
@@ -384,22 +385,21 @@ class TtsService:
         ceiling = self._heap.max_clip_bytes
         try:
             async with asyncio.timeout(self._settings.tts_generation_timeout_seconds):
-                async for chunk in self._provider.synthesize_stream(request):
-                    if len(entry.buffer) + len(chunk) > ceiling:
-                        # §9.2's per-clip ceiling, and it is a real tripwire
-                        # now that it is derived from the longest verse rather
-                        # than from Gemini's output cap: reaching it means the
-                        # text was far past verse-sized, or the provider is
-                        # streaming audio nobody asked for. Either way one
-                        # runaway generation must not spend its neighbours'
-                        # memory, so it dies here, through the honest-failure
-                        # path (readers abort, the entry is discarded).
-                        raise ExternalServiceException(
-                            message="Audio generation exceeded the per-clip limit.",
-                            code=ErrorCode.TTS_CLIP_TOO_LONG,
-                            details={"max_clip_bytes": ceiling},
-                        )
-                    await entry.append(chunk)
+                async with aclosing(
+                    self._provider.synthesize_stream(request)
+                ) as chunks:
+                    async for chunk in chunks:
+                        if len(entry.buffer) + len(chunk) > ceiling:
+                            # §9.2's per-clip ceiling, and it is a real tripwire
+                            # now that it is derived from the longest verse
+                            # rather than from Gemini's output cap. One runaway
+                            # generation must not spend its neighbours' memory.
+                            raise ExternalServiceException(
+                                message="Audio generation exceeded the per-clip limit.",
+                                code=ErrorCode.TTS_CLIP_TOO_LONG,
+                                details={"max_clip_bytes": ceiling},
+                            )
+                        await entry.append(chunk)
             await entry.mark_complete()
         except asyncio.CancelledError:
             # SIGTERM, typically. Readers see abort-not-complete, and the

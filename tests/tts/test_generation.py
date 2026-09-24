@@ -232,6 +232,9 @@ class TestAdmission:
 
         del entry
         gc.collect()
+        # The finalizer only schedules work; counter and semaphore change
+        # together on the event loop, with no lock held during GC.
+        assert h.buffered_bytes == CLIP_CEILING
         await asyncio.sleep(0)  # the semaphore release is scheduled on the loop
 
         assert h.buffered_bytes == 0

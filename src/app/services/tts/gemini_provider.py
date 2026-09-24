@@ -26,8 +26,9 @@ confirmed against the real API rather than read off a doc page:
 """
 
 import base64
-from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import AbstractAsyncContextManager
+from typing import TYPE_CHECKING, Any, cast
 
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import ExternalServiceException, ServiceUnavailableException
@@ -106,7 +107,7 @@ class GeminiTtsProvider:
 
     async def synthesize_stream(
         self, request: TtsProviderRequest
-    ) -> AsyncIterator[bytes]:
+    ) -> AsyncGenerator[bytes, None]:
         """Stream one clip's PCM, decoding and checking every audio delta.
 
         The loop's shape is the design point: it branches on `event_type`
@@ -126,38 +127,40 @@ class GeminiTtsProvider:
             response_format={"type": "audio"},
             generation_config={"speech_config": [{"voice": request.voice}]},
         )
-        if not hasattr(stream, "__aiter__"):  # pragma: no cover - defensive
+        if not hasattr(stream, "__aiter__") or not hasattr(stream, "__aenter__"):
             raise self._provider_error(
                 "Gemini returned a non-streaming interaction despite stream=True."
             )
 
         audio_deltas = 0
-        # The `hasattr` above is what narrows this away from the SDK's
-        # `Interaction | AsyncStream` union — and it is also the honest check:
-        # a non-streaming answer to `stream=True` is a provider fault, not a
-        # typing inconvenience.
-        async for event in stream:
-            event_type = getattr(event, "event_type", None)
+        # A non-streaming answer to `stream=True` is a provider fault. The
+        # checked cast narrows the SDK's `Interaction | AsyncStream` union.
+        # The SDK's AsyncStream is an async context manager whose exit closes
+        # the HTTP response. It exposes close(), not aclose(). Keeping it in
+        # scope also covers a caller closing this generator before exhaustion.
+        async with cast(
+            AbstractAsyncContextManager[AsyncIterator[Any]], stream
+        ) as events:
+            async for event in events:
+                event_type = getattr(event, "event_type", None)
 
-            if event_type == _ERROR_EVENT:
-                # In-band, not raised: the SDK hands this to us as an ordinary
-                # iteration value, so a loop that only caught exceptions would
-                # read a mid-stream failure as a successful short clip.
-                error = getattr(event, "error", None)
-                raise self._provider_error(
-                    "Gemini reported an error mid-stream.",
-                    detail=getattr(error, "message", None) or "unspecified",
-                )
+                if event_type == _ERROR_EVENT:
+                    # In-band, not raised: a short clip must not be stored as
+                    # a completed artifact after an upstream error.
+                    error = getattr(event, "error", None)
+                    raise self._provider_error(
+                        "Gemini reported an error mid-stream.",
+                        detail=getattr(error, "message", None) or "unspecified",
+                    )
 
-            if event_type != _AUDIO_EVENT:
-                # Lifecycle chatter (`interaction.created`, `step.start`,
-                # `step.stop`, `interaction.completed`, status updates).
-                continue
+                if event_type != _AUDIO_EVENT:
+                    # Lifecycle chatter carries no audio.
+                    continue
 
-            chunk = self._decode_audio_delta(getattr(event, "delta", None))
-            if chunk:
-                audio_deltas += 1
-                yield chunk
+                chunk = self._decode_audio_delta(getattr(event, "delta", None))
+                if chunk:
+                    audio_deltas += 1
+                    yield chunk
 
         if audio_deltas == 0:
             # A stream that ends without a single audio delta is a failure, not

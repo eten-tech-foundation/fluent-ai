@@ -60,7 +60,7 @@ GoogleGeminiDep = Annotated[GoogleGeminiClient, Depends(get_google_gemini_client
 _tts_service: TtsService | None = None
 
 
-def get_tts_service() -> TtsService:
+async def get_tts_service() -> TtsService:
     """Return the cached TtsService, building it (and its R2 client) on demand.
 
     Built lazily rather than in `lifespan` on purpose: a deployment with no TTS

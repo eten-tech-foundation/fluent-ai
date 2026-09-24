@@ -6,12 +6,15 @@ not a commit marker, not sensitive, not a ledger, and never read by anything
 load-bearing. Those properties only stay true if something asserts them.
 """
 
+import asyncio
 import json
 import logging
+from unittest.mock import Mock
 
 import pytest
 from botocore.exceptions import ClientError
 
+import app.dependencies as dependencies
 from app.config import PCM_BYTES_PER_CHARACTER
 from app.schemas.tts import TtsGenerateRequest
 from app.services.tts.artifacts import TtsArtifactStore
@@ -178,3 +181,23 @@ class TestLimitPairing:
             )
 
         assert "abort mid-stream" not in caplog.text
+
+
+class TestSingletonDependency:
+    async def test_concurrent_first_requests_share_one_service(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = tts_settings()
+        store = TtsArtifactStore(client=FakeS3Client(), bucket="b")
+        build_store = Mock(return_value=store)
+        monkeypatch.setattr(dependencies, "_tts_service", None)
+        monkeypatch.setattr(dependencies, "get_settings", lambda: settings)
+        monkeypatch.setattr(dependencies, "build_artifact_store", build_store)
+
+        services = await asyncio.gather(
+            *(dependencies.get_tts_service() for _ in range(12))
+        )
+
+        assert all(service is services[0] for service in services)
+        assert dependencies.peek_tts_service() is services[0]
+        build_store.assert_called_once_with(settings)

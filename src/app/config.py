@@ -30,7 +30,7 @@ def _get_app_version() -> str:
 # Source-TTS sizing
 #
 # Full evidence, the knob table, and how to size for a given container:
-#   docs/source-tts-capacity.md   <- read that before changing anything here
+#   docs/features/source-tts/source-tts-capacity.md
 #
 # The short version. These are one dial, not three: the text limit fixes the
 # clip ceiling (below), the ceiling divides the RAM budget into admission slots,
@@ -275,8 +275,8 @@ class Settings(BaseSettings):
         description=(
             "Longest text this service will speak, in characters. Refusal here "
             "precedes any provider call, so an oversized text costs nothing; "
-            "raise it only together with TTS_MAX_CLIP_BYTES (docs/"
-            "source-tts-capacity.md has the curve and the RAM arithmetic). "
+            "raise it only together with TTS_MAX_CLIP_BYTES (docs/features/"
+            "source-tts/source-tts-capacity.md has the curve and RAM arithmetic). "
             "This service is the SOLE authority on the limit (T27): fluent-api "
             "is a passive proxy that validates shape only and holds no copy of "
             "this number, so there is no second value to drift."
@@ -300,7 +300,7 @@ class Settings(BaseSettings):
             "BUY CONCURRENCY — it costs no verse coverage, where lowering the "
             "ceiling does. Container memory wants ~1.5x headroom over it "
             "(ffmpeg subprocess, interpreter, fragmentation). Sizing table: "
-            "docs/source-tts-capacity.md."
+            "docs/features/source-tts/source-tts-capacity.md."
         ),
     )
     tts_max_clip_bytes: int = Field(
@@ -310,7 +310,8 @@ class Settings(BaseSettings):
             "reservation, and the per-append tripwire that kills a generation "
             "growing past it. Derived from TTS_MAX_TEXT_LENGTH — lowering it "
             "alone reopens the billed-mid-stream gap the boot check warns "
-            "about. Sizing table: docs/source-tts-capacity.md."
+            "about. Sizing table: "
+            "docs/features/source-tts/source-tts-capacity.md."
         ),
     )
     tts_admission_wait_seconds: float = Field(

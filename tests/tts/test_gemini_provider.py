@@ -59,6 +59,16 @@ class FakeStream:
 
     def __init__(self, events):
         self._events = list(events)
+        self.closed = False
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc):
+        await self.close()
+
+    async def close(self):
+        self.closed = True
 
     def __aiter__(self):
         return self
@@ -73,10 +83,13 @@ class FakeInteractions:
     def __init__(self, events):
         self._events = events
         self.calls: list[dict] = []
+        self.streams: list[FakeStream] = []
 
     async def create(self, **kwargs):
         self.calls.append(kwargs)
-        return FakeStream(self._events)
+        stream = FakeStream(self._events)
+        self.streams.append(stream)
+        return stream
 
 
 class FakeGenaiClient:
@@ -149,6 +162,19 @@ class TestCallShape:
 
 
 class TestAudioDeltas:
+    async def test_sdk_stream_closes_after_completion_and_early_exit(self):
+        provider, client = provider_for([audio_event(b"one"), audio_event(b"two")])
+        chunks = provider.synthesize_stream(REQUEST)
+
+        assert await anext(chunks) == b"one"
+        stream = client.aio.interactions.streams[0]
+        assert not stream.closed
+        await chunks.aclose()
+        assert stream.closed
+
+        await collect(provider)
+        assert client.aio.interactions.streams[1].closed
+
     async def test_audio_arrives_base64_and_is_decoded(self):
         """There is no `chunk.audio_bytes` in any SDK version: `data` is a
         base64 *string*, and appending it undecoded would store four bytes of
@@ -184,7 +210,7 @@ class TestFailures:
         """The headline consequence of the 2.x shape: an error arrives as an
         ordinary iteration value. A loop that only caught exceptions would read
         this stream as a successful two-chunk clip and store it forever."""
-        provider, _ = provider_for(
+        provider, client = provider_for(
             [audio_event(b"partial"), error_event(), audio_event(b"unreachable")]
         )
 
@@ -193,6 +219,7 @@ class TestFailures:
 
         assert excinfo.value.code == ErrorCode.TTS_PROVIDER_UNAVAILABLE
         assert excinfo.value.status_code == 502
+        assert client.aio.interactions.streams[0].closed
 
     async def test_a_stray_text_token_fails_the_generation(self):
         """§8.2's known glitch, detected by delta *type* rather than guessed at

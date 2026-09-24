@@ -195,6 +195,7 @@ class FakeTtsProvider:
             frozenset({"lang_code"}) if ignored_fields is None else ignored_fields
         )
         self.synthesize_calls: list[TtsProviderRequest] = []
+        self.closed_streams = 0
         self.chunks = chunks
         self.fail_after = fail_after
         # A *type* and a message, not a prepared exception instance: an
@@ -225,18 +226,21 @@ class FakeTtsProvider:
 
     async def synthesize_stream(self, request: TtsProviderRequest):
         self.synthesize_calls.append(request)
-        if self.chunks is None:
-            raise AssertionError(
-                "synthesize_stream must never be reached from generate (T8)"
-            )
-        for index, chunk in enumerate(self.chunks):
-            if index == self.fail_after:
+        try:
+            if self.chunks is None:
+                raise AssertionError(
+                    "synthesize_stream must never be reached from generate (T8)"
+                )
+            for index, chunk in enumerate(self.chunks):
+                if index == self.fail_after:
+                    raise self.failure_type(self.failure_message)
+                if self.paced:
+                    await self._await_release()
+                yield chunk
+            if len(self.chunks) == self.fail_after:
                 raise self.failure_type(self.failure_message)
-            if self.paced:
-                await self._await_release()
-            yield chunk
-        if len(self.chunks) == self.fail_after:
-            raise self.failure_type(self.failure_message)
+        finally:
+            self.closed_streams += 1
 
     async def _await_release(self) -> None:
         while self._pending <= 0:

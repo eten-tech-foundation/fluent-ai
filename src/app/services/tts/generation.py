@@ -21,7 +21,6 @@ happens after a clip completes, belongs to the service layer.
 """
 
 import asyncio
-import threading
 import weakref
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -353,11 +352,6 @@ class GenerationHeap:
             WeakValueDictionary()
         )
         self._buffered_bytes = 0
-        # Guards the counter alone. A finalizer runs wherever the last
-        # reference happened to drop, which is not necessarily the event loop's
-        # thread (the compression tail hands the buffer to `asyncio.to_thread`),
-        # so `+=` on a plain int is not safe to assume atomic here.
-        self._counter_lock = threading.Lock()
 
     # ------------------------------------------------------------------ #
     # Lookup — the first two rungs of the waterfall (§7.2)
@@ -443,8 +437,7 @@ class GenerationHeap:
             return Admission(existing, created=False)
 
         buffer = GenerationBuffer()
-        with self._counter_lock:
-            self._buffered_bytes += self._max_clip_bytes
+        self._buffered_bytes += self._max_clip_bytes
 
         # Registered against the buffer, not the entry: the buffer is the
         # memory, and this is what ties the slot's life to the bytes' life. The
@@ -464,14 +457,11 @@ class GenerationHeap:
 
     def _release(self, artifact: str, nbytes: int, loop: asyncio.AbstractEventLoop):
         """Give back one slot's bytes, called by the buffer's finalizer."""
-        with self._counter_lock:
-            self._buffered_bytes -= nbytes
         try:
-            # Scheduled rather than called: `Semaphore.release()` touches the
-            # loop's waiter futures, and a finalizer can fire on a worker
-            # thread (see `_counter_lock`). `call_soon_threadsafe` is correct
-            # from the loop's own thread too, at the cost of one tick.
-            loop.call_soon_threadsafe(self._semaphore.release)
+            # Both accounting and semaphore release run together on the loop.
+            # A finalizer can fire during GC on this thread or on a worker
+            # thread, so it must never acquire a lock or mutate the counter.
+            loop.call_soon_threadsafe(self._give_back, nbytes)
         except RuntimeError:
             # The loop is closed — the process is going away (or a test's loop
             # ended before this buffer was collected). The slot dies with it.
@@ -479,6 +469,10 @@ class GenerationHeap:
                 "tts admission slot released after loop close",
                 artifact_hash=artifact,
             )
+
+    def _give_back(self, nbytes: int) -> None:
+        self._buffered_bytes -= nbytes
+        self._semaphore.release()
 
     # ------------------------------------------------------------------ #
     # Lifecycle transitions
@@ -575,8 +569,7 @@ class GenerationHeap:
     @property
     def buffered_bytes(self) -> int:
         """Bytes currently reserved by live buffers — the accounting truth."""
-        with self._counter_lock:
-            return self._buffered_bytes
+        return self._buffered_bytes
 
     @property
     def slots(self) -> int:
