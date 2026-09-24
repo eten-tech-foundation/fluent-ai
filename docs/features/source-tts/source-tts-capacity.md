@@ -11,6 +11,13 @@ lives. **It deliberately does not state the current values.** Those are in
 [`src/app/config.py`](../../../src/app/config.py) and [`.env.example`](../../../.env.example); a number repeated
 in two places drifts.
 
+## TL;DR
+
+- This guide sizes fluent-ai's speech-generation memory. The supported text length and per-clip byte ceiling move together; the total buffer budget divided by that ceiling determines worst-case concurrent admission slots.
+- A survey of 11.2 million verses shows the coverage trade-off. Refusing overlong text at `generate` costs nothing; accepting a clip that exceeds its byte ceiling wastes a paid generation.
+- Current settings live in `src/app/config.py` and `.env.example`. Choose a budget against the deployed container's real memory limit, including room for the service and compression tail.
+- The bytes-per-character estimate comes from English speech and should be remeasured for other scripts. Byte-counted admission and encoder packaging alternatives remain future work or deployment choices.
+
 ## There is really only one dial
 
 Three settings look independent and are not:
