@@ -116,9 +116,9 @@ class TtsService:
         self._settings = settings
         self._store = store
         self._provider = provider
-        # Injectable so the tail's tests never spawn a subprocess, and so B5's
-        # answer (bundled binary vs the shared transcode container) swaps one
-        # object rather than editing this class — see compression.py.
+        # Injectable so the tail's tests never spawn a subprocess, and so the
+        # encoder choice (bundled binary vs shared transcode container) swaps
+        # one object rather than editing this class — see compression.py.
         self._compressor = compressor or FfmpegCompressor(
             concurrency=settings.tts_ffmpeg_concurrency,
             binary=settings.tts_ffmpeg_binary,
@@ -459,7 +459,7 @@ class TtsService:
 
         # Step 2. Another instance may already have uploaded this artifact —
         # duplicate generations are expected whenever instance topology does
-        # not pin one hash to one process (B6, §10.1). Skipping the encode is
+        # not pin one hash to one process (§10.1). Skipping the encode is
         # the cheap half of that; the conditional PUT below is the correct half.
         if await self._store.head(key) is not None:
             logger.info(
@@ -512,10 +512,9 @@ class TtsService:
         """Cancel every in-flight generation on the way down (§8.3).
 
         Called by the application's lifespan, which is the only thing that
-        holds a handle on this process's heap. Phase 07 built the receiving
-        half of this — `_generate_into`'s `CancelledError` branch — and nothing
-        sent the cancel, so a deploy that caught a generation in flight
-        abandoned it mid-write.
+        holds a handle on this process's heap. `_generate_into` already handles
+        `CancelledError`; without this sender, a deploy that caught a generation
+        in flight abandoned it mid-write.
 
         There is no drain-and-finish here on purpose; the reasoning lives on
         `GenerationHeap.cancel_all`, which does the work.

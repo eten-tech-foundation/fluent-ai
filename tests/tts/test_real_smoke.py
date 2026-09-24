@@ -1,5 +1,5 @@
 """
-tests/tts/test_real_smoke.py — the opt-in real-infrastructure smoke (phase 09).
+tests/tts/test_real_smoke.py — the opt-in real-infrastructure smoke.
 
 **This test spends money and writes to the real bucket.** It is skipped unless
 `TTS_SMOKE_REAL=1` (see `conftest.py`), and it is the only test in the repo
@@ -31,7 +31,7 @@ limitation `test_tts_audio.py` documents), which would make a time-to-first-byte
 figure a fiction. The compressed era *is* driven through the route, since a
 302 arrives whole.
 
-── The trap this test was written around (G4) ────────────────────────────────
+── The User-Agent trap this test was written around ─────────────────────────
 `dev.tts.fluent.bible` answers **403 to `Python-urllib`** by User-Agent while
 browsers, curl, AVPlayer, ExoPlayer and even an empty UA get 200. A smoke
 script that inherits a Python client's default UA can therefore "prove" the
@@ -76,7 +76,7 @@ SMOKE_TEXT = "In the beginning God created the heaven and the earth."
 2026-08-13 provider check spoke aloud, so two clips can be compared by ear."""
 
 SMOKE_USER_AGENT = "fluent-ai-tts-smoke/1.0"
-"""Explicit, because the default would be the question (see G4 above)."""
+"""Explicit to avoid the public host's Python-urllib User-Agent behavior."""
 
 KEEP_ARTIFACTS_ENV_VAR = "TTS_SMOKE_KEEP"
 """Set to `1` to leave the three objects in the bucket after the run.
@@ -377,7 +377,7 @@ async def test_a_verse_is_synthesized_streamed_compressed_stored_and_served(
         _report("route", redirect=redirected.headers["location"], unknown_hash=404)
 
         # ------------------------------------------------------------ #
-        # 6. The public domain serves it — with an explicit UA (G4).
+        # 6. The public domain serves it — with an explicit User-Agent.
         # ------------------------------------------------------------ #
         async with httpx.AsyncClient(
             headers={"User-Agent": SMOKE_USER_AGENT}, timeout=30.0
@@ -386,7 +386,7 @@ async def test_a_verse_is_synthesized_streamed_compressed_stored_and_served(
 
         assert served.status_code == 200, (
             f"the public host answered {served.status_code}; if that is 403, "
-            "check the User-Agent before concluding the bucket is private (G4)"
+            "check the User-Agent before concluding the bucket is private"
         )
         assert served.content == clip, "the served bytes are not the stored bytes"
         assert served.headers["content-type"] == FORMAT_CONTENT_TYPES[recipe.format]

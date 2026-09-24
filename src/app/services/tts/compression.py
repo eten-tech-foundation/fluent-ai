@@ -1,8 +1,8 @@
 """The compression step of the generation tail (source-tts proposal §10.1).
 
-**This module is the whole ffmpeg seam, on purpose.** B5 — whether ffmpeg
-arrives as a pip-bundled binary or as the team's shared `transcode-mcp`
-container — is still open, and the answer changes *how* a clip is encoded but
+**This module is the whole ffmpeg seam, on purpose.** Whether ffmpeg arrives
+as a pip-bundled binary or as the team's shared `transcode-mcp` container is
+still open, and the answer changes *how* a clip is encoded but
 nothing about when or by whom. So the tail depends on `Compressor` (two
 methods, no subprocess vocabulary in the signatures) and swapping in a network
 transcoder is a new class in this file, not a change to `TtsService`.
@@ -47,10 +47,10 @@ transparent for speech well below 32 kbps; the same figure is what voice chat
 ships. A 1.5 s tone encodes to 9.4x smaller than its PCM here, consistent with
 §7.2.1's "~10x fewer bytes" claim for the compressed era.
 
-**What would settle it:** phase 09's smoke test produces real verses. Listen to
-one before assuming this is right, and remember that changing it later is free
-for *new* artifacts and impossible for old ones — §9.4 has no eviction, so
-every clip already in R2 keeps the bitrate it was encoded at.
+**What would settle it:** the real-infrastructure smoke test produces real
+verses. Listen to one before assuming this is right, and remember that changing
+it later is free for *new* artifacts and impossible for old ones — §9.4 has no
+eviction, so every clip already in R2 keeps the bitrate it was encoded at.
 """
 
 MP3_BITRATE = "64k"
@@ -78,7 +78,7 @@ class CompressionError(RuntimeError):
 
 
 class Compressor(Protocol):
-    """The seam B5's answer swaps out (see the module docstring)."""
+    """The seam that swaps encoder implementations (see the module docstring)."""
 
     async def compress(
         self, pcm: bytes, *, pcm_format: PcmFormat, target_format: str
@@ -105,10 +105,10 @@ def resolve_ffmpeg_binary() -> str:
     ~77 MB.** Invoking it as a subprocess (rather than linking it) is the
     ordinary way to use ffmpeg without the GPL reaching our own source, but the
     container does then distribute GPL software, and the image grows. Both are
-    inputs to B5, which is a team decision and not settled here.
+    deployment policy inputs that still need a team decision.
 
-    ⚠ **There is no musl wheel** (found 2026-08-16, phase 09, by running the
-    real container). `imageio-ffmpeg` 0.6.0 publishes macOS, manylinux2014 and
+    ⚠ **There is no musl wheel** (confirmed 2026-08-16 by running the real
+    container). `imageio-ffmpeg` 0.6.0 publishes macOS, manylinux2014 and
     Windows wheels only, so on `python:3.14-alpine` uv installs the 25 KB
     *sdist*, whose `binaries/` directory is empty and whose `get_ffmpeg_exe()`
     **raises RuntimeError** — not ImportError. Catching only ImportError

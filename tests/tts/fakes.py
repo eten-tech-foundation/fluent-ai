@@ -164,9 +164,8 @@ class FakeTtsProvider:
     """One fake, two jobs — and the default job is refusing to synthesize.
 
     With no `chunks`, `synthesize_stream` raises: that is what makes "generate
-    never synthesizes" (T8) provable rather than assumed, and it is the shape
-    every phase-06 test uses. Hand it `chunks` and it becomes a scriptable
-    stream for the serving waterfall:
+    never synthesizes" (T8) provable rather than assumed. Hand it `chunks` and
+    it becomes a scriptable stream for the serving waterfall:
 
     * `chunks` — the PCM it yields, one append per chunk;
     * `fail_after` — raise once that many chunks have been yielded,

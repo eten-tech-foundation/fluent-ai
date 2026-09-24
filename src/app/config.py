@@ -53,7 +53,7 @@ CORPUS_LONGEST_VERSE_CHARS = 6_504
 1,005 translations, 11,227,230 verses. Not an estimate and not an artifact:
 1KI 12:24 carries the Septuagint's long addition as one verse in LXX-based
 English Bibles. Recorded because it is what `MAX_TEXT_CHARS` would have to be
-for zero refusals; the survey script lives in the harness repo.
+for zero refusals; the capacity document records the survey method and results.
 """
 
 MAX_TEXT_CHARS = 4_000
@@ -377,7 +377,7 @@ class Settings(BaseSettings):
             "here overrides that. It exists because the bundled build is GPL "
             "(`--enable-gpl`) and ~77 MB — if either turns out to be "
             "unacceptable, a deployment can point at its own build without a "
-            "code change while B5 is settled."
+            "code change while the packaging choice is settled."
         ),
     )
 

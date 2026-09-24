@@ -45,8 +45,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # ffmpeg matches production for the same reason it is there: `imageio-ffmpeg`
 # has no musl wheel, so the compression tail (§10.1) has no encoder on Alpine
 # without it. Keeping it here as well is what makes `fai.sh test` able to run
-# tests/tts/test_compression.py, which spawns a real binary. See B5 — this is
-# interim, pending the transcode-mcp decision.
+# tests/tts/test_compression.py, which spawns a real binary. This is interim,
+# pending the transcode-mcp decision.
 RUN apk update && \
     apk add --no-cache dumb-init=1.2.5-r4 curl=8.21.0-r0 ffmpeg=8.1.2-r0 build-base && \
     rm -rf /var/cache/apk/*

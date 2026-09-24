@@ -78,8 +78,8 @@ FROM base AS runtime
 # listen re-bills the provider), which is why this is a cost blocker rather
 # than an outage.
 #
-# ⚠ This is an INTERIM answer and the team is expected to prefer the shared
-# transcode-mcp container instead — see B5 in the source-TTS blockers note. It
+# ⚠ This is an INTERIM answer; the team may prefer the shared transcode-mcp
+# container instead, and that packaging choice remains open. This package
 # costs ~129 MB uncompressed, because Alpine's ffmpeg pulls the full libav
 # video stack for a 404 KB audio-only CLI. Swapping to a network transcoder is
 # a new class behind `Compressor` in services/tts/compression.py plus deleting

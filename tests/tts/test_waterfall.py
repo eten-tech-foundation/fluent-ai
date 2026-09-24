@@ -63,7 +63,7 @@ def service_without_tail(r2, provider, settings) -> TtsService:
     """A service whose compression tail always fails.
 
     Two rungs are only reachable when no compressed object exists, and since
-    phase 08 the tail uploads one on every completed generation — so the way
+    the tail uploads one on every completed generation, the way
     to reach them is a tail that could not produce the object (encoder down,
     R2 refusing). Faking *that* keeps those tests about the waterfall while
     also pinning the tail's failure contract: a clip stays attachable and
@@ -108,8 +108,8 @@ def authorize(r2, settings, provider, text: str = "In the beginning") -> str:
 def compress(r2, settings, digest: str, extension: str = "ogg") -> None:
     """Put a compressed object in R2 without running a generation.
 
-    Still useful after phase 08 built the real tail: several rungs need the
-    object to exist for a hash that this process never synthesized — which is
+    Several rungs need the object to exist for a hash that this process never
+    synthesized, so this remains useful even with the real tail — which is
     the ordinary case of another instance having done the work (§10.1).
     """
     r2.objects[f"{settings.tts_r2_prefix}audio/{digest}.{extension}"] = {
@@ -203,7 +203,7 @@ class TestRungOrder:
         digest = authorize(r2, settings, provider)
         provider.paced = True
         first = await service.resolve_audio(digest)
-        compress(r2, settings, digest)  # phase 08 finishes for another replica
+        compress(r2, settings, digest)  # another replica finishes the upload
         r2.head_calls.clear()  # the ledger from the first resolution
 
         second = await service.resolve_audio(digest)
@@ -250,11 +250,11 @@ class TestDrainingSet:
         for a new listener — but only until the compressed object exists.
 
         **Staged through a failed tail, which is now the only way to reach
-        this state.** Before phase 08 nothing was ever uploaded, so "draining
-        with no compressed object" was simply what draining looked like; now
-        the tail uploads on the way out, and the object is absent exactly when
-        the tail could not produce it (encoder down, R2 refusing). So this also
-        pins the tail's failure contract: the clip stays *attachable* and
+        this state.** Before the compression tail, nothing was ever uploaded,
+        so "draining with no compressed object" was simply what draining looked
+        like; now the tail uploads on the way out, and the object is absent
+        exactly when the tail could not produce it (encoder down, R2 refusing).
+        So this also pins the tail's failure contract: the clip stays *attachable* and
         regenerable rather than becoming a 404.
         """
         service = service_without_tail

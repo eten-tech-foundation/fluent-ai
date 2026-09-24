@@ -73,8 +73,8 @@ cancelled it yet. Worst-case shutdown is therefore ~35 s, of which this constant
 is the last five. Two consequences worth knowing before changing anything here:
 the number that dominates deploy-time cost is the 30 s drain, not this one; and
 under Docker's default 10 s stop grace (or Kubernetes' default 30 s) the
-`SIGKILL` can land *before* this code ever runs. The platform's real kill
-timeout is still unknown — see B6/B7 in the harness notes.
+`SIGKILL` can land *before* this code ever runs. Confirm the deployment
+platform's effective kill timeout before changing either shutdown value.
 """
 
 

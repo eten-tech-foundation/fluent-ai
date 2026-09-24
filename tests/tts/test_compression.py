@@ -9,9 +9,9 @@ stay cheap — the fixtures are fractions of a second of audio.
 ⚠ **They need an ffmpeg that runs on this machine, and that is not guaranteed
 by the dependencies.** `imageio-ffmpeg` ships no musl wheel, so inside the
 Alpine container these fall back to whatever is on `PATH` and fail outright if
-the image provisions nothing (phase 09, 2026-08-16 — B5's packaging answer is
-open again). On an ordinary glibc developer machine the wheel supplies it and
-there is nothing to provision.
+the image provisions nothing (confirmed in the container on 2026-08-16; the
+packaging choice remains open). On an ordinary glibc developer machine the
+wheel supplies it and there is nothing to provision.
 """
 
 import asyncio
@@ -198,8 +198,8 @@ class TestFailures:
         a bare `ffmpeg` from PATH, the wheel stopped shipping a binary". It
         never could: **the assertion passes on a machine with ffmpeg installed
         even when the wheel ships nothing**, which is exactly what happens on
-        musl. Phase 09 found that in the container, not here, and the honest
-        scope of this test is now in its name.
+        musl. Running the real container exposed that gap; the honest scope of
+        this test is now in its name.
         """
         assert os.path.isabs(resolve_ffmpeg_binary())
 

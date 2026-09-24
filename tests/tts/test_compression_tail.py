@@ -105,8 +105,7 @@ class TestTheHappyPath:
     async def test_a_finished_clip_is_encoded_and_uploaded(
         self, service, r2, settings, provider, compressor
     ):
-        """The whole point of phase 08: after this, a second listen is a 302
-        instead of a second bill."""
+        """After a completed tail, a second listen is a 302 instead of a bill."""
         digest = authorize(r2, settings, provider)
 
         await listen(service, digest)
@@ -165,7 +164,7 @@ class TestSkippingWork:
         self, service, r2, settings, provider, compressor
     ):
         """§10.1 step 2. Duplicate generations are expected wherever instance
-        topology does not pin one hash to one process (B6), and encoding bytes
+        topology does not pin one hash to one process, and encoding bytes
         that are about to lose a conditional PUT is pure waste.
 
         `compressor.calls` being empty is the only honest way to assert "never

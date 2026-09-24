@@ -304,8 +304,8 @@ class TestNotFound:
         assert streaming.headers["content-type"] == "audio/wav"
 
         # The compressed era arrives on its own now — the tail uploads it. It
-        # used to be planted by hand here, which since phase 08 would race the
-        # real upload for the same key.
+        # used to be planted by hand here, which would race the real upload for
+        # the same key.
         await settle_tail(service, digest)
         compressed = await audio_client.get(
             f"/tts/audio/{digest}.mp3", follow_redirects=False
