@@ -63,6 +63,45 @@ class ErrorCode:
     TOOL_EXECUTION_ERROR = "TOOL_EXECUTION_ERROR"
 
     # ------------------------------------------------------------------ #
+    # Service unavailable (503)
+    # ------------------------------------------------------------------ #
+    SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
+
+    # ------------------------------------------------------------------ #
+    # Source TTS (400, 502, 503)
+    #
+    # These codes are part of the TTS contract, not decoration: fluent-web
+    # branches on the HTTP status and an operator reads the code, so
+    # "text too long" must stay distinguishable from "malformed request"
+    # (source-tts proposal §7.1).
+    # ------------------------------------------------------------------ #
+    TTS_INVALID_REQUEST = "TTS_INVALID_REQUEST"
+    TTS_TEXT_TOO_LONG = "TTS_TEXT_TOO_LONG"
+    TTS_STORAGE_NOT_CONFIGURED = "TTS_STORAGE_NOT_CONFIGURED"
+    TTS_STORAGE_ERROR = "TTS_STORAGE_ERROR"
+    # get-audio (§7.2): the waterfall's own answers.
+    #
+    # TTS_ARTIFACT_NOT_FOUND is the 404 rung and is *routine* — it means no
+    # request sidecar was ever written for this hash, and the client heals by
+    # re-calling generate and retrying (§7.2 rung 4), so it must stay
+    # distinguishable from a storage fault.
+    #
+    # TTS_BUSY is the admission refusal (§9.2) and is the only code that
+    # travels with a Retry-After header; a client that sees it waits and
+    # retries rather than reporting a failure.
+    #
+    # TTS_CLIP_TOO_LONG is the per-append ceiling firing mid-generation. It is
+    # deliberately NOT TTS_TEXT_TOO_LONG: that one is a validation refusal at
+    # `generate`, before anything is billed, while this one means audio was
+    # already being paid for and streamed when it outgrew the ceiling. Reusing
+    # one code would hide the difference between "we said no" and "we stopped
+    # halfway", which are opposite facts about cost.
+    TTS_ARTIFACT_NOT_FOUND = "TTS_ARTIFACT_NOT_FOUND"
+    TTS_BUSY = "TTS_BUSY"
+    TTS_PROVIDER_UNAVAILABLE = "TTS_PROVIDER_UNAVAILABLE"
+    TTS_CLIP_TOO_LONG = "TTS_CLIP_TOO_LONG"
+
+    # ------------------------------------------------------------------ #
     # Internal (500)
     # ------------------------------------------------------------------ #
     INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR"

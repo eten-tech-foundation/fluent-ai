@@ -42,8 +42,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # dumb-init and curl versions are pinned to match the production image;
 # build-base is unpinned because it is a meta-package and dev does not
 # require byte-reproducible toolchain versions.
+# ffmpeg matches production for the same reason it is there: `imageio-ffmpeg`
+# has no musl wheel, so the compression tail (§10.1) has no encoder on Alpine
+# without it. Keeping it here as well is what makes `fai.sh test` able to run
+# tests/tts/test_compression.py, which spawns a real binary. This is interim,
+# pending the transcode-mcp decision.
 RUN apk update && \
-    apk add --no-cache dumb-init=1.2.5-r4 curl=8.21.0-r0 build-base && \
+    apk add --no-cache dumb-init=1.2.5-r4 curl=8.21.0-r0 ffmpeg=8.1.2-r0 build-base && \
     rm -rf /var/cache/apk/*
 
 WORKDIR /app

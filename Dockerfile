@@ -69,8 +69,23 @@ FROM base AS runtime
 # same package set — the same base digest built a week apart must resolve to
 # identical bytes. Bump these deliberately alongside CVE review, same as the
 # base image digest and uv version/digest above.
+# ffmpeg is the source-TTS compression tail's encoder (§10.1). It is installed
+# here rather than arriving with the Python dependencies because
+# `imageio-ffmpeg` ships **no musl wheel** — on this Alpine base uv installs its
+# sdist, whose bundled-binaries directory is empty, and the tail then fails on
+# every clip (found by running this image, 2026-08-16). The service degrades
+# honestly without it (audio still streams; nothing becomes durable, so every
+# listen re-bills the provider), which is why this is a cost blocker rather
+# than an outage.
+#
+# ⚠ This is an INTERIM answer; the team may prefer the shared transcode-mcp
+# container instead, and that packaging choice remains open. This package
+# costs ~129 MB uncompressed, because Alpine's ffmpeg pulls the full libav
+# video stack for a 404 KB audio-only CLI. Swapping to a network transcoder is
+# a new class behind `Compressor` in services/tts/compression.py plus deleting
+# this line.
 RUN apk update && \
-    apk add --no-cache dumb-init=1.2.5-r4 curl=8.21.0-r0 && \
+    apk add --no-cache dumb-init=1.2.5-r4 curl=8.21.0-r0 ffmpeg=8.1.2-r0 && \
     rm -rf /var/cache/apk/*
 
 # Create a non-root user (uid/gid 1001 to match compose/podman runtime) and a
@@ -105,6 +120,20 @@ ENTRYPOINT ["dumb-init", "--"]
 #   --proxy-headers             trust X-Forwarded-* from the load balancer
 #   --workers                   horizontal scaling is done by the orchestrator
 #   --timeout-graceful-shutdown give in-flight requests time to finish on SIGTERM
+#
+# ⚠ `--workers 1` IS A HARD REQUIREMENT, NOT A DEFAULT (source-tts T26, §10.1).
+# It was already 1 for its own reasons; TTS makes it load-bearing. The audio
+# generation heap is per-process state, so a second worker would (a) really use
+# a second whole `TTS_MAX_BUFFERED_BYTES` against one container memory limit,
+# and (b) split dedup across two dicts that cannot see each other — the same
+# verse synthesized and billed twice, which is precisely what the heap exists to
+# prevent. Neither shows up as an error: the first is an OOM under load, the
+# second a quietly doubled provider bill.
+#
+# `--timeout-graceful-shutdown 30` also interacts with TTS: uvicorn runs the
+# lifespan shutdown (which cancels in-flight generations) only AFTER this drain,
+# so a deploy that catches a clip mid-generation can spend up to this long still
+# synthesizing. See SHUTDOWN_GRACE_SECONDS in services/tts/generation.py.
 #
 # Database migrations and seeds are run out-of-band by CI/CD, NOT on container
 # start. See AGENTS.md §Database Ownership and your deploy pipeline.

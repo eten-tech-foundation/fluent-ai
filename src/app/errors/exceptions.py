@@ -128,6 +128,44 @@ class ExternalServiceException(FluentAIException):
     default_message = "An external service is unavailable. Please try again later."
 
 
+# --------------------------------------------------------------------------- #
+# 503 — Service Unavailable
+# --------------------------------------------------------------------------- #
+
+
+class ServiceUnavailableException(FluentAIException):
+    """A dependency this service needs is absent or temporarily saturated.
+
+    Distinct from ExternalServiceException (502: an upstream answered badly):
+    503 says "this service cannot serve the request right now", which is what a
+    caller should retry rather than report. Used for unconfigured artifact
+    storage and for TTS admission-control rejection.
+
+    `retry_after` is the seconds value for the `Retry-After` response header,
+    and it is the reason this class has a handler of its own (the
+    FluentAIException catch-all honours `status_code` but sets no headers at
+    all). It is optional because the two 503s here are not the same kind of
+    wait: admission rejection clears on its own in seconds, while unconfigured
+    storage clears only when an operator sets an env var — promising a retry
+    time for the latter would be a lie the client would act on.
+    """
+
+    status_code = 503
+    default_code = ErrorCode.SERVICE_UNAVAILABLE
+    default_message = "The service is temporarily unable to handle the request."
+
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        code: str | None = None,
+        details: dict | list | str | None = None,
+        retry_after: int | None = None,
+    ) -> None:
+        super().__init__(message, code=code, details=details)
+        self.retry_after = retry_after
+
+
 class ToolExecutionException(FluentAIException):
     """A tool implementation failed during execution.
 
