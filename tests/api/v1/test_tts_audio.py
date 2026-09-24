@@ -205,8 +205,9 @@ class TestStreamingEra:
             audio_client.get(url(digest)), audio_client.get(url(digest))
         )
 
-        assert first.status_code == 200
-        assert second.status_code in (200, 302)
+        status_codes = {first.status_code, second.status_code}
+        assert status_codes <= {200, 302}
+        assert 200 in status_codes
         assert len(provider.synthesize_calls) == 1
 
 
