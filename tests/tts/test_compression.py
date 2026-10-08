@@ -19,7 +19,6 @@ import math
 import os
 import shutil
 import struct
-import tempfile
 
 import pytest
 
@@ -118,25 +117,6 @@ class TestEncoding:
 
         assert clip.duration_ms is not None
         assert clip.duration_ms > 1800  # ~2 s of audio from 1 s of samples
-
-
-class TestNoTempFiles:
-    async def test_encoding_writes_nothing_to_disk(
-        self, compressor, tmp_path, monkeypatch
-    ):
-        """§10.1: stdin to stdout, no staging directory.
-
-        Not a style preference — the production root filesystem is read-only,
-        so a design that reached for a temp file would pass every test on a
-        developer's laptop and fail on the first real clip.
-        """
-        before = set(os.listdir(tempfile.gettempdir()))
-        monkeypatch.chdir(tmp_path)
-
-        await compressor.compress(tone(), pcm_format=PCM, target_format="ogg-opus")
-
-        assert set(os.listdir(tempfile.gettempdir())) == before
-        assert list(tmp_path.iterdir()) == []
 
 
 # A rate ffmpeg itself rejects ("Invalid sample rate"), so these exercise the

@@ -103,8 +103,6 @@ AudioResolution = AudioStream | AudioRedirect
 class TtsService:
     """Coordinates identity, storage and generation for one process."""
 
-    name = "tts"
-
     def __init__(
         self,
         *,
