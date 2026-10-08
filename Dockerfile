@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
-# Base image: python:3.14-alpine3.24 pinned by digest for reproducible, auditable
-# builds. Bump the digest intentionally after CVE review; do not float to `latest`.
+# Base image: python:3.14-alpine3.24 pinned by digest for a fixed, auditable
+# foundation. Bump the digest intentionally after CVE review; do not float to `latest`.
 FROM python:3.14-alpine3.24@sha256:26730869004e2b9c4b9ad09cab8625e81d256d1ce97e72df5520e806b1709f92 AS base
 
 # OCI labels for traceability in registries and runtime inspection.
@@ -64,11 +64,9 @@ RUN --mount=type=cache,target=/tmp/uv-cache \
 FROM base AS runtime
 
 # Install dumb-init for proper PID 1 signal handling (graceful SIGTERM, zombie
-# reaping) and curl for the HEALTHCHECK. Versions are pinned explicitly
-# (instead of `apk upgrade`) so the same base image digest always produces the
-# same package set — the same base digest built a week apart must resolve to
-# identical bytes. Bump these deliberately alongside CVE review, same as the
-# base image digest and uv version/digest above.
+# reaping) and curl for the HEALTHCHECK. These packages resolve from the Alpine
+# 3.24 release repository, so image rebuilds take its current compatible and
+# security revisions. The base image and uv image remain pinned by digest.
 # ffmpeg is the source-TTS compression tail's encoder (§10.1). It is installed
 # here rather than arriving with the Python dependencies because
 # `imageio-ffmpeg` ships **no musl wheel** — on this Alpine base uv installs its
@@ -85,7 +83,7 @@ FROM base AS runtime
 # a new class behind `Compressor` in services/tts/compression.py plus deleting
 # this line.
 RUN apk update && \
-    apk add --no-cache dumb-init=1.2.5-r4 curl=8.21.0-r0 ffmpeg=8.1.2-r0 && \
+    apk add --no-cache dumb-init curl ffmpeg && \
     rm -rf /var/cache/apk/*
 
 # Create a non-root user (uid/gid 1001 to match compose/podman runtime) and a
