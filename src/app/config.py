@@ -277,7 +277,7 @@ class Settings(BaseSettings):
             "precedes any provider call, so an oversized text costs nothing; "
             "raise it only together with TTS_MAX_CLIP_BYTES (docs/features/"
             "source-tts/source-tts-capacity.md has the curve and RAM arithmetic). "
-            "This service is the SOLE authority on the limit (T27): fluent-api "
+            "This service is the sole authority on the limit (proposal §7.1): fluent-api "
             "is a passive proxy that validates shape only and holds no copy of "
             "this number, so there is no second value to drift."
         ),

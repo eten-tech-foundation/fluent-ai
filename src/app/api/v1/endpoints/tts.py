@@ -4,8 +4,9 @@ Source-TTS endpoints (source-tts proposal §7.1).
 `POST /tts/generate` authorizes and records a synthesis recipe. fluent-api
 mirrors it as `POST /ai/tts/generate`, and the audio route that lands with the
 serving waterfall (§7.2) must stay its sibling under this same `/tts` prefix —
-`generate` answers with a sibling-relative `audio_url`, so the mirror is a
-contract requirement on both services, not a convention.
+a cold `generate` answers with a sibling-relative `audio_url`, so the mirror is
+a contract requirement on both services, not a convention. A warm compressed
+artifact may instead be returned as an absolute R2 URL.
 
 ── Why there is no ToolJobResponse envelope here ────────────────────────────
 Every other fluent-ai tool answers inside `ToolJobResponse` so a synchronous

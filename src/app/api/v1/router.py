@@ -15,6 +15,7 @@ router.include_router(
 )
 # `/tts` is mirrored by fluent-api as `/ai/tts` (source-tts proposal §7.1). The
 # two tails must stay siblings under one prefix on both services, because
-# `generate` answers with a sibling-relative `audio_url` that the caller
-# resolves against the URL it actually called.
+# a cold `generate` answers with a sibling-relative `audio_url` that the caller
+# resolves against the URL it actually called. A warm absolute R2 URL does not
+# depend on the mirror, but resolves under the same rule.
 router.include_router(tts.router, prefix="/tts", tags=["tts"])

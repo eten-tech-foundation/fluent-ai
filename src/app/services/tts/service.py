@@ -550,7 +550,7 @@ class TtsService:
             )
 
     # ------------------------------------------------------------------ #
-    # Validation (T27 — this service owns the length limit)
+    # Validation (proposal §7.1 — this service owns the length limit)
     # ------------------------------------------------------------------ #
 
     def _validate(self, request: TtsGenerateRequest) -> None:

@@ -196,7 +196,7 @@ class TestGenerateSuccess:
 
 
 # ---------------------------------------------------------------------------
-# Validation — T27: this service owns the length limit
+# Validation — proposal §7.1: this service owns the length limit
 # ---------------------------------------------------------------------------
 
 

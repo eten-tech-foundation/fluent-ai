@@ -121,13 +121,12 @@ class TtsGenerateRequest(BaseModel):
 class TtsGenerateResponse(BaseModel):
     """Success body for POST /tts/generate.
 
-    ⚠️ `audio_url` is **sibling-relative** (`audio/{hash}.wav`), resolved by
-    the caller against the URL it actually called. That is what keeps the
-    serving choice server-side: the browser called fluent-api, so its audio
-    fetch goes to fluent-api, while a future direct consumer of fluent-ai
-    resolves to fluent-ai — with no contract change and without fluent-ai
-    knowing any consumer's public base URL. It requires `generate` and
-    `audio/{hash}` to stay siblings under one prefix on *both* services.
+    The caller resolves `audio_url` against the response URL. A cold artifact
+    is sibling-relative (`audio/{hash}.wav`), keeping recovery behind the front
+    door the caller used. A warm compressed artifact may be the absolute R2
+    URL, which resolves to itself and skips an extra proxy/redirect hop. The
+    cold form requires `generate` and `audio/{hash}` to stay siblings under one
+    prefix on *both* services.
 
     There is deliberately no duration field: a streaming first listen has no
     knowable duration, and once compressed the container header carries the
@@ -136,7 +135,8 @@ class TtsGenerateResponse(BaseModel):
 
     audio_url: str = Field(
         description=(
-            "Sibling-relative reference to the audio, resolved against the request URL."
+            "Cold sibling-relative or warm absolute reference to the audio; "
+            "resolve it against the response URL."
         ),
         examples=["audio/9f2ac1d47bfe3a5c8e1d0b6a4f7c2e91.wav"],
     )
