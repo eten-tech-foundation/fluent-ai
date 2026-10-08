@@ -165,13 +165,15 @@ limit, still to be confirmed for deployment, is the number worth getting.
 sync` is the whole setup. **In the container, `apk`.** That wheel publishes macOS, manylinux2014 and
 Windows builds and **no musl wheel**, so on this service's `python:3.14-alpine3.24` base uv installs
 its 25 KB sdist, whose bundled-binaries directory is empty and whose `get_ffmpeg_exe()` raises. The
-Dockerfiles therefore install `ffmpeg=8.1.2-r0` themselves, and `resolve_ffmpeg_binary()` prefers the
+Dockerfiles therefore install the compatible `ffmpeg` package from the Alpine 3.24 repositories, and `resolve_ffmpeg_binary()` prefers the
 wheel, then `PATH`, then a bare name that fails at the first encode. `TTS_FFMPEG_BINARY` overrides
 all three.
 
 That was found by running the image, not by reading (2026-08-16). Before the fix, the
 raise escaped `TtsService.__init__` and took every TTS route down; now a missing encoder degrades
 only the tail.
+
+The Python base and copied `uv` image are digest-pinned, while Alpine's live package indexes are not a snapshot. Exact APK revision pins therefore age out; clean development and production builds resolve versions compatible with Alpine 3.24.
 
 **What a deployment with no working encoder costs, once it survives:** audio still streams and every
 listener hears the whole verse, but nothing is ever uploaded — so no `302` is reachable and **every
@@ -184,3 +186,7 @@ rather than linking it is the ordinary way to use ffmpeg without the GPL reachin
 source, but the image does then distribute GPL software. The likely answer is the shared
 `transcode-mcp` container instead, and the swap is one class in `services/tts/compression.py` —
 which is why the encoder sits behind a two-method seam rather than being called inline.
+
+## Monitoring status
+
+The service emits structured logs for authorization, waterfall attachment, failures, compression, and upload outcomes. Dedicated metrics for artifact misses, generated duration, conflicts, and provider spend remain deferred until observed use justifies a maintained metrics surface.
