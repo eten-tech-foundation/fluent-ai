@@ -386,25 +386,29 @@ class TestAdmission:
 
 
 class TestHeadProbe:
-    async def test_head_answers_the_waterfall_without_a_body(
+    @staticmethod
+    def assert_streaming_probe(response: httpx.Response) -> None:
+        assert response.status_code == 200
+        assert response.content == b""
+        assert response.headers["content-type"] == "audio/wav"
+        assert response.headers["cache-control"] == "private, max-age=60"
+        assert response.headers["accept-ranges"] == "none"
+
+    async def test_authorized_cold_head_starts_exactly_one_generation(
         self, audio_client, r2, settings, provider
     ):
-        """A streaming body here would attach a reader for the clip's whole
-        duration to a request that discards every byte."""
+        """Recovery HEAD may start the same authorized work as a first GET."""
         digest = authorize(r2, settings, provider)
 
         response = await audio_client.request("HEAD", url(digest))
+        await asyncio.sleep(0)
 
-        assert response.status_code == 200
-        assert response.headers["content-type"] == "audio/wav"
-        assert response.content == b""
+        self.assert_streaming_probe(response)
+        assert len(provider.synthesize_calls) == 1
 
-    async def test_head_classifies_302_and_404_the_same_way_get_does(
+    async def test_warm_head_is_an_empty_redirect_without_provider_spend(
         self, audio_client, r2, settings, provider
     ):
-        missing = await audio_client.request("HEAD", url("0" * 64))
-        assert missing.status_code == 404
-
         digest = authorize(r2, settings, provider)
         r2.objects[f"{settings.tts_r2_prefix}audio/{digest}.ogg"] = {
             "body": b"compressed",
@@ -414,7 +418,41 @@ class TestHeadProbe:
             "HEAD", url(digest), follow_redirects=False
         )
         assert compressed.status_code == 302
-        assert compressed.headers["location"].endswith(".ogg")
+        assert compressed.content == b""
+        assert compressed.headers["location"] == (
+            f"https://tts.example.test/tts/audio/{digest}.ogg"
+        )
+        assert provider.synthesize_calls == []
+
+    async def test_malformed_and_unknown_head_are_empty_404_without_spend(
+        self, audio_client, provider
+    ):
+        for path in ("nope.wav", f"{'0' * 64}.wav"):
+            response = await audio_client.request("HEAD", f"/tts/audio/{path}")
+            assert response.status_code == 404, path
+            assert response.content == b"", path
+        assert provider.synthesize_calls == []
+
+    async def test_overlapping_get_and_head_share_one_generation(
+        self, audio_client, r2, settings, provider
+    ):
+        digest = authorize(r2, settings, provider)
+        provider.paced = True
+        get_task = asyncio.create_task(audio_client.get(url(digest)))
+        for _ in range(20):
+            if provider.synthesize_calls:
+                break
+            await asyncio.sleep(0)
+
+        probe = await audio_client.request("HEAD", url(digest))
+
+        self.assert_streaming_probe(probe)
+        assert len(provider.synthesize_calls) == 1
+        provider.release(3)
+        streamed = await get_task
+        assert streamed.status_code == 200
+        assert streamed.content[WAV_HEADER_BYTES:] == PCM_CHUNK * 3
+        assert len(provider.synthesize_calls) == 1
 
 
 # ---------------------------------------------------------------------------
