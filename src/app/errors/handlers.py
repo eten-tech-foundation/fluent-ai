@@ -35,6 +35,7 @@ from app.errors.exceptions import (
     ExternalServiceException,
     FluentAIException,
     NotFoundException,
+    ServiceUnavailableException,
     ValidationException,
 )
 from app.errors.logging import get_logger, log_exception
@@ -60,6 +61,7 @@ def _json_error(
     message: str,
     request_id: str,
     details=None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
@@ -69,6 +71,7 @@ def _json_error(
             request_id=request_id,
             details=details,
         ),
+        headers=headers,
     )
 
 
@@ -180,6 +183,47 @@ async def _handle_external_service_exception(
     )
 
 
+async def _handle_service_unavailable_exception(
+    request: Request, exc: ServiceUnavailableException
+) -> JSONResponse:
+    """503 responses, and the only place a `Retry-After` header is emitted.
+
+    This handler exists for the header alone — `status_code` already travelled
+    correctly through the FluentAIException catch-all, which builds the JSON
+    envelope and sets no headers whatsoever.
+
+    Why not the two obvious alternatives, both of which fail quietly here:
+
+    * `raise HTTPException(headers=...)` — `_handle_http_exception` below now
+      forwards headers, but its status→code table has no 503 entry, so a TTS
+      admission refusal would answer `INTERNAL_SERVER_ERROR` instead of
+      `TTS_BUSY` and the client would stop distinguishing "wait and retry"
+      from "something broke".
+    * returning a `JSONResponse` from the route — the admission gate lives
+      several layers below the endpoint (in the generation heap), so the route
+      would have to learn about it just to attach one header, and the error
+      envelope would get a second construction site.
+
+    Raising instead keeps the refusal where the decision is made, which is what
+    makes "`503` + `Retry-After` **before any body bytes**" (§9.2, §12.3) true
+    by construction: the exception is raised while resolving the request, long
+    before a streaming response object exists.
+    """
+    request_id = _get_request_id(request)
+    log_exception(logger, request, exc, error_code=exc.code, level=logging.WARNING)
+    headers = (
+        {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
+    )
+    return _json_error(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        code=exc.code,
+        message=exc.message,
+        request_id=request_id,
+        details=exc.details,
+        headers=headers,
+    )
+
+
 async def _handle_fluent_ai_exception(
     request: Request, exc: FluentAIException
 ) -> JSONResponse:
@@ -274,6 +318,11 @@ async def _handle_http_exception(request: Request, exc: HTTPException) -> JSONRe
         code=code,
         message=str(exc.detail),
         request_id=request_id,
+        # Forwarded rather than dropped: `HTTPException(headers=...)` is the
+        # documented way to attach `WWW-Authenticate`, `Retry-After` and
+        # friends, and silently discarding them makes a route look correct
+        # while the header the client depends on never arrives.
+        headers=getattr(exc, "headers", None),
     )
 
 
@@ -326,6 +375,10 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         ExternalServiceException,
         _handle_external_service_exception,  # type: ignore[arg-type]
+    )
+    app.add_exception_handler(
+        ServiceUnavailableException,
+        _handle_service_unavailable_exception,  # type: ignore[arg-type]
     )
     # Base class catch-all (must come after all subclasses)
     app.add_exception_handler(FluentAIException, _handle_fluent_ai_exception)  # type: ignore[arg-type]

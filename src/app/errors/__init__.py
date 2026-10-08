@@ -14,6 +14,7 @@ from app.errors.exceptions import (
     ExternalServiceException,
     FluentAIException,
     NotFoundException,
+    ServiceUnavailableException,
     ToolExecutionException,
     ValidationException,
 )
@@ -31,5 +32,6 @@ __all__ = [
     "ConflictException",
     "DatabaseException",
     "ExternalServiceException",
+    "ServiceUnavailableException",
     "ToolExecutionException",
 ]

@@ -19,6 +19,7 @@ from app.errors.exceptions import (
     DatabaseException,
     ExternalServiceException,
     NotFoundException,
+    ServiceUnavailableException,
     ValidationException,
 )
 from app.errors.handlers import register_exception_handlers
@@ -70,6 +71,24 @@ def _make_test_app() -> FastAPI:
     @_app.get("/raise/http")
     async def _raise_http():
         raise HTTPException(status_code=418, detail="I'm a teapot")
+
+    @_app.get("/raise/busy")
+    async def _raise_busy():
+        raise ServiceUnavailableException(
+            message="buffer full", code=ErrorCode.TTS_BUSY, retry_after=5
+        )
+
+    @_app.get("/raise/unconfigured")
+    async def _raise_unconfigured():
+        raise ServiceUnavailableException(
+            message="no bucket", code=ErrorCode.TTS_STORAGE_NOT_CONFIGURED
+        )
+
+    @_app.get("/raise/http-with-headers")
+    async def _raise_http_with_headers():
+        raise HTTPException(
+            status_code=401, detail="nope", headers={"WWW-Authenticate": "Bearer"}
+        )
 
     @_app.get("/raise/unhandled")
     async def _raise_unhandled():
@@ -238,3 +257,42 @@ class TestRequestID:
         r = ec.get("/raise/not-found", headers={"X-Request-ID": "my-trace-id"})
         assert r.headers["x-request-id"] == "my-trace-id"
         assert _error(r)["request_id"] == "my-trace-id"
+
+
+# ---------------------------------------------------------------------------
+# 503 and its Retry-After header
+# ---------------------------------------------------------------------------
+
+
+class TestServiceUnavailable:
+    """The header route added for TTS admission control (§9.2, §12.3).
+
+    Before this handler existed, every 503 travelled through the
+    FluentAIException catch-all, which builds the envelope and sets no headers
+    at all — so `Retry-After` had nowhere to live and a client could not tell
+    "wait five seconds" from "this will never work".
+    """
+
+    def test_a_saturated_service_answers_503_with_retry_after(self, ec):
+        r = ec.get("/raise/busy")
+        assert r.status_code == 503
+        assert r.headers["retry-after"] == "5"
+        assert _error(r)["code"] == ErrorCode.TTS_BUSY
+
+    def test_a_503_with_no_retry_hint_sends_no_header(self, ec):
+        """Unconfigured storage clears when an operator sets an env var, not
+        when a client waits — promising a retry time would be a lie the client
+        would act on."""
+        r = ec.get("/raise/unconfigured")
+        assert r.status_code == 503
+        assert "retry-after" not in r.headers
+        assert _error(r)["code"] == ErrorCode.TTS_STORAGE_NOT_CONFIGURED
+
+    def test_http_exception_headers_are_forwarded_too(self, ec):
+        """The trap that made the dedicated handler necessary: this envelope
+        builder used to drop `exc.headers` silently, so a route attaching
+        `WWW-Authenticate` (or `Retry-After`) looked correct and shipped
+        nothing."""
+        r = ec.get("/raise/http-with-headers")
+        assert r.status_code == 401
+        assert r.headers["www-authenticate"] == "Bearer"

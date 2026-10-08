@@ -18,8 +18,8 @@
 #   - CMD runs `docker-entrypoint.sh` (bootstrap → migrate → seed →
 #     `fastapi dev` with hot-reload), not `uvicorn` directly.
 
-# Base image: same as production, pinned by digest for reproducible builds
-# and to surface musl/Alpine issues during development rather than only in prod.
+# Base image: same fixed, auditable foundation as production, pinned by digest
+# to surface musl/Alpine issues during development rather than only in prod.
 FROM python:3.14-alpine3.24@sha256:26730869004e2b9c4b9ad09cab8625e81d256d1ce97e72df5520e806b1709f92
 
 # OCI labels for traceability (same as production).
@@ -39,11 +39,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # Install dumb-init (PID 1 signal handling), curl (HEALTHCHECK), and
 # build-base (compiler toolchain for sdist builds during `uv add`/`uv sync`).
-# dumb-init and curl versions are pinned to match the production image;
-# build-base is unpinned because it is a meta-package and dev does not
-# require byte-reproducible toolchain versions.
+# Packages resolve from the Alpine 3.24 release repository, matching production;
+# rebuilds take its current compatible and security revisions.
+# ffmpeg matches production for the same reason it is there: `imageio-ffmpeg`
+# has no musl wheel, so the compression tail (§10.1) has no encoder on Alpine
+# without it. Keeping it here as well is what makes `fai.sh test` able to run
+# tests/tts/test_compression.py, which spawns a real binary. This is interim,
+# pending the transcode-mcp decision.
 RUN apk update && \
-    apk add --no-cache dumb-init=1.2.5-r4 curl=8.21.0-r0 build-base && \
+    apk add --no-cache dumb-init curl ffmpeg build-base && \
     rm -rf /var/cache/apk/*
 
 WORKDIR /app
