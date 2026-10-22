@@ -1,6 +1,7 @@
 from hashlib import sha256
 import json
 
+from sqlalchemy import update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,6 +45,21 @@ async def enqueue_suggestion_jobs(
         for req in requests
     ]
 
+    # A failed job is a retry path, not a tombstone: reset it so the
+    # re-trigger runs it again. queued/processing/completed rows stay deduped.
+    # The payload is left alone because an equal dedup_key implies an equal
+    # request.
+    requeue_stmt = (
+        update(Job)
+        .where(
+            Job.dedup_key.in_({job["dedup_key"] for job in jobs_data}),
+            Job.status == "failed",
+        )
+        .values(status="queued", retry_count=0, error_message=None)
+        .returning(Job.id)
+    )
+    requeued_count = len((await db.execute(requeue_stmt)).scalars().all())
+
     stmt = insert(Job).values(jobs_data)
     stmt = stmt.on_conflict_do_nothing(index_elements=["dedup_key"])
     stmt = stmt.returning(Job.id)  # type: ignore[assignment]
@@ -53,20 +69,28 @@ async def enqueue_suggestion_jobs(
     await db.commit()
 
     requested_count = len(jobs_data)
-    skipped_count = requested_count - inserted_count
+    skipped_count = requested_count - inserted_count - requeued_count
 
+    notes = []
+    if requeued_count:
+        notes.append(
+            f"{requeued_count} failed job{'' if requeued_count == 1 else 's'} requeued"
+        )
     if skipped_count:
+        notes.append(
+            f"{skipped_count} duplicate{'' if skipped_count == 1 else 's'} skipped"
+        )
+    if notes:
         message = (
-            f"Queued {inserted_count} of {requested_count} jobs "
-            f"({skipped_count} duplicate skipped)"
-            if skipped_count == 1
-            else (
-                f"Queued {inserted_count} of {requested_count} jobs "
-                f"({skipped_count} duplicates skipped)"
-            )
+            f"Queued {inserted_count} of {requested_count} jobs ({', '.join(notes)})"
         )
     else:
         message = f"Queued {inserted_count} jobs"
 
     logger.info(message)
-    return SuggestionTriggerResponse(message=message)
+    return SuggestionTriggerResponse(
+        message=message,
+        queued=inserted_count,
+        requeued=requeued_count,
+        skipped=skipped_count,
+    )

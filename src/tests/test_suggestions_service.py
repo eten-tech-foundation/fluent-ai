@@ -254,3 +254,79 @@ async def test_heading_jobs_keep_separate_dedup_identity_and_persist_metadata(
         assert len(job.dedup_key) <= 255
     assert jobs[1].payload["pericopeNumber"] == "1_4a"
     assert jobs[1].payload["pericopeSetId"] == 7
+
+
+async def _set_status(db_session, verse_start: int, **values) -> None:
+    job = (
+        await db_session.execute(
+            select(Job).where(
+                Job.dedup_key == f"ai_suggestion:1:1:MAT:1:{verse_start}:{verse_start}"
+            )
+        )
+    ).scalar_one()
+    for name, value in values.items():
+        setattr(job, name, value)
+    await db_session.commit()
+
+
+async def _job(db_session, verse_start: int) -> Job:
+    db_session.expire_all()
+    return (
+        await db_session.execute(
+            select(Job).where(
+                Job.dedup_key == f"ai_suggestion:1:1:MAT:1:{verse_start}:{verse_start}"
+            )
+        )
+    ).scalar_one()
+
+
+async def test_retrigger_of_failed_job_requeues_it(db_session):
+    await enqueue_suggestion_jobs(db_session, [_request(1)])
+    await _set_status(
+        db_session,
+        1,
+        status="failed",
+        retry_count=3,
+        error_message="Permanently failed after 3 retries: 402 RESOURCE_EXHAUSTED",
+    )
+
+    response = await enqueue_suggestion_jobs(db_session, [_request(1)])
+
+    assert (response.queued, response.requeued, response.skipped) == (0, 1, 0)
+    job = await _job(db_session, 1)
+    assert job.status == "queued"
+    assert job.retry_count == 0
+    assert job.error_message is None
+    assert job.payload == _request(1).model_dump(by_alias=True, exclude_none=True)
+
+
+@pytest.mark.parametrize("status", ["queued", "processing", "completed"])
+async def test_retrigger_of_unfailed_job_is_skipped_untouched(db_session, status):
+    await enqueue_suggestion_jobs(db_session, [_request(1)])
+    await _set_status(
+        db_session, 1, status=status, retry_count=2, error_message="Retry 2/3: boom"
+    )
+
+    response = await enqueue_suggestion_jobs(db_session, [_request(1)])
+
+    assert (response.queued, response.requeued, response.skipped) == (0, 0, 1)
+    job = await _job(db_session, 1)
+    assert job.status == status
+    assert job.retry_count == 2
+    assert job.error_message == "Retry 2/3: boom"
+
+
+async def test_mixed_batch_reports_each_bucket(db_session):
+    await enqueue_suggestion_jobs(db_session, [_request(1), _request(2), _request(3)])
+    await _set_status(db_session, 1, status="failed", retry_count=3)
+    await _set_status(db_session, 2, status="failed", retry_count=3)
+    await _set_status(db_session, 3, status="completed")
+
+    requests = [_request(1), _request(2), _request(3), _request(4)]
+    response = await enqueue_suggestion_jobs(db_session, requests)
+
+    assert (response.queued, response.requeued, response.skipped) == (1, 2, 1)
+    assert response.queued + response.requeued + response.skipped == len(requests)
+    assert response.message == (
+        "Queued 1 of 4 jobs (2 failed jobs requeued, 1 duplicate skipped)"
+    )

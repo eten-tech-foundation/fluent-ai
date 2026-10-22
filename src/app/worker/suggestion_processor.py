@@ -67,6 +67,26 @@ class NonRetryableJobError(Exception):
 
 type SourceVerse = dict[str, Any]
 
+# Upper bound on the failure detail persisted in ai.jobs.error_message, so a
+# verbose upstream body cannot bloat the jobs table.
+MAX_FAILURE_DETAIL_CHARS = 500
+
+
+def _failure_detail(exc: Exception) -> str:
+    """Describe why a job failed, for ai.jobs.error_message.
+
+    Wrapper exceptions such as ExternalServiceException keep the upstream
+    cause (e.g. Gemini's 402 RESOURCE_EXHAUSTED body) in details["error"],
+    while their message only names the dependency. Persist both so the row
+    says which dependency failed and why.
+    """
+    details = getattr(exc, "details", None)
+    if isinstance(details, dict) and details.get("error"):
+        detail = f"{exc} {details['error']}"
+    else:
+        detail = str(exc) or type(exc).__name__
+    return detail[:MAX_FAILURE_DETAIL_CHARS]
+
 
 @dataclass(frozen=True)
 class _PipelineResult:
@@ -405,15 +425,22 @@ async def process_job(
             job.retry_count = new_retry_count
             job.status = "queued"
             job.error_message = (
-                f"Retry {new_retry_count}/{MAX_JOB_RETRIES}: {str(e)[:500]}"
+                f"Retry {new_retry_count}/{MAX_JOB_RETRIES}: {_failure_detail(e)}"
             )
             logger.info(
                 f"Re-queuing job {job_id} (retry {new_retry_count}/{MAX_JOB_RETRIES})"
             )
+        elif isinstance(e, NonRetryableJobError):
+            job.status = "failed"
+            job.error_message = (
+                f"Permanently failed (non-retryable): {_failure_detail(e)}"
+            )
+            logger.error(f"Job {job_id} permanently failed (non-retryable).")
         else:
             job.status = "failed"
             job.error_message = (
-                f"Permanently failed after {MAX_JOB_RETRIES} retries: {str(e)[:500]}"
+                f"Permanently failed after {MAX_JOB_RETRIES} retries: "
+                f"{_failure_detail(e)}"
             )
             logger.error(
                 f"Job {job_id} permanently failed after {MAX_JOB_RETRIES} retries."

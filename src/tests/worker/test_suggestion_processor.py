@@ -13,6 +13,8 @@ import pytest
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.constants import MAX_JOB_RETRIES
+from app.errors.exceptions import ExternalServiceException
 from app.models.job import Job
 from app.worker.suggestion_processor import process_job, reclaim_stale_jobs
 
@@ -415,3 +417,144 @@ async def test_process_job_fails_when_all_items_are_dropped(db_session, make_job
     await db_session.refresh(job)
     assert job.status == "failed"
     assert job.error_message is not None
+
+
+QUOTA_ERROR = (
+    "402 RESOURCE_EXHAUSTED. {'error': {'code': 402, 'message': "
+    "'Your prepayment credits are depleted.', 'status': 'RESOURCE_EXHAUSTED'}}"
+)
+
+
+async def _process_with_translation_error(
+    db_session, job, monkeypatch, error: Exception
+) -> Job:
+    """Run process_job with fluent-api answering normally and translation raising."""
+    translation_service = AsyncMock()
+    translation_service.settings.api_base_url = "http://fluent-api:9999"
+    translation_service.settings.api_service_key = "test-key"
+    translation_service.translate_verses.side_effect = error
+
+    class _FakeContextResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "targetLanguageName": "Spanish",
+                "contextVerses": [],
+                "sourceVerses": [
+                    {"id": 1, "verse_number": 1, "text": "In the beginning"}
+                ],
+            }
+
+    async def _fake_post(self, *args, **kwargs):
+        return _FakeContextResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+    await process_job(db_session, job, translation_service)
+    await db_session.refresh(job)
+    return job
+
+
+def _gemini_error(detail: str) -> ExternalServiceException:
+    return ExternalServiceException(
+        message="Google Gemini API request failed.", details={"error": detail}
+    )
+
+
+async def test_retry_message_carries_external_service_detail(
+    db_session, make_job, monkeypatch
+):
+    job = await make_job(retry_count=0)
+
+    job = await _process_with_translation_error(
+        db_session, job, monkeypatch, _gemini_error(QUOTA_ERROR)
+    )
+
+    assert job.status == "queued"
+    assert job.error_message.startswith(f"Retry 1/{MAX_JOB_RETRIES}: ")
+    assert "Google Gemini API request failed." in job.error_message
+    assert "Your prepayment credits are depleted." in job.error_message
+
+
+async def test_permanent_failure_message_carries_external_service_detail(
+    db_session, make_job, monkeypatch
+):
+    job = await make_job(retry_count=MAX_JOB_RETRIES)
+
+    job = await _process_with_translation_error(
+        db_session, job, monkeypatch, _gemini_error(QUOTA_ERROR)
+    )
+
+    assert job.status == "failed"
+    assert job.error_message.startswith(
+        f"Permanently failed after {MAX_JOB_RETRIES} retries: "
+    )
+    assert "Your prepayment credits are depleted." in job.error_message
+
+
+async def test_permanent_failure_message_falls_back_to_exception_text(
+    db_session, make_job, monkeypatch
+):
+    job = await make_job(retry_count=MAX_JOB_RETRIES)
+
+    job = await _process_with_translation_error(
+        db_session, job, monkeypatch, RuntimeError("LLM boom")
+    )
+
+    assert job.error_message == (
+        f"Permanently failed after {MAX_JOB_RETRIES} retries: LLM boom"
+    )
+
+
+async def test_failure_message_names_exception_type_when_it_has_no_text(
+    db_session, make_job, monkeypatch
+):
+    job = await make_job(retry_count=0)
+
+    job = await _process_with_translation_error(
+        db_session, job, monkeypatch, httpx.ReadTimeout("")
+    )
+
+    assert job.error_message == f"Retry 1/{MAX_JOB_RETRIES}: ReadTimeout"
+
+
+async def test_failure_detail_is_capped(db_session, make_job, monkeypatch):
+    job = await make_job(retry_count=0)
+
+    job = await _process_with_translation_error(
+        db_session, job, monkeypatch, _gemini_error("x" * 10_000)
+    )
+
+    assert len(job.error_message) <= len(f"Retry 1/{MAX_JOB_RETRIES}: ") + 500
+
+
+async def test_non_retryable_failure_is_labelled_as_such(
+    db_session, make_job, monkeypatch
+):
+    job = await make_job(retry_count=0)
+
+    class _FakeResponse:
+        status_code = 401
+
+        def raise_for_status(self):
+            raise httpx.HTTPStatusError(
+                "Unauthorized",
+                request=httpx.Request("POST", "http://x"),
+                response=self,
+            )
+
+    async def _fake_post(self, *args, **kwargs):
+        return _FakeResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+    translation_service = AsyncMock()
+    translation_service.settings.api_base_url = "http://fluent-api:9999"
+    await process_job(db_session, job, translation_service)
+    await db_session.refresh(job)
+
+    assert job.status == "failed"
+    assert job.error_message == (
+        "Permanently failed (non-retryable): fluent-api rejected context "
+        "request with 401: Unauthorized"
+    )
