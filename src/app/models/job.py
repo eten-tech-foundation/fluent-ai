@@ -48,6 +48,9 @@ class Job(OwnedBase):
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime, server_default=text("now()")
     )
+    # Bumped by every UPDATE, and every UPDATE today is a status transition,
+    # so GET /jobs/stats reads it as "entered current status at". An update
+    # that leaves status alone would skew those stats.
     updated_at: Mapped[datetime | None] = mapped_column(
         DateTime, server_default=text("now()"), onupdate=text("now()")
     )

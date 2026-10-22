@@ -170,6 +170,7 @@ Admin-only endpoints additionally require the key to have the `"admin"` permissi
 | `PATCH` | `/api-keys/{key_id}` | Admin | Update key name, permissions, or expiry |
 | `DELETE` | `/api-keys/{key_id}` | Admin | Revoke an API key |
 | `GET` | `/api-keys/me` | API key | Get current key info |
+| `GET` | `/jobs/stats` | API key | `ai.jobs` health gauge: counts by status, oldest backlog, latest failure ([design](docs/features/ai-jobs-health/design.md)) |
 
 ### API Key lifecycle
 
