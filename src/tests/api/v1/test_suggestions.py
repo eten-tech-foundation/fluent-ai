@@ -72,3 +72,32 @@ def test_trigger_suggestions_accepts_batch_at_max_size(authed_client, monkeypatc
     at_max = [_request(i + 1) for i in range(MAX_SUGGESTION_BATCH_SIZE)]
     response = authed_client.post("/suggestions", json=at_max)
     assert response.status_code == 200
+
+
+def test_trigger_suggestions_returns_structured_counts(authed_client, monkeypatch):
+    import app.api.v1.endpoints.suggestions as suggestions_endpoint
+    from app.schemas.suggestions import SuggestionTriggerResponse
+
+    monkeypatch.setattr(
+        suggestions_endpoint,
+        "enqueue_suggestion_jobs",
+        AsyncMock(
+            return_value=SuggestionTriggerResponse(
+                message="Queued 1 of 3 jobs (1 failed job requeued, 1 duplicate skipped)",
+                queued=1,
+                requeued=1,
+                skipped=1,
+            )
+        ),
+    )
+    response = authed_client.post(
+        "/suggestions", json=[_request(1), _request(2), _request(3)]
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "message": "Queued 1 of 3 jobs (1 failed job requeued, 1 duplicate skipped)",
+        "queued": 1,
+        "requeued": 1,
+        "skipped": 1,
+    }

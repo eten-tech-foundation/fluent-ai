@@ -40,7 +40,16 @@ class SuggestionTriggerRequest(BaseModel):
 
 
 class SuggestionTriggerResponse(BaseModel):
+    """Outcome of a trigger. The counts sum to the number of submitted requests."""
+
     message: str
+    queued: int = Field(default=0, description="Newly inserted jobs.")
+    requeued: int = Field(
+        default=0, description="Previously failed jobs reset to queued."
+    )
+    skipped: int = Field(
+        default=0, description="Duplicates of queued, processing or completed jobs."
+    )
 
 
 class SectionHeadingContext(BaseModel):

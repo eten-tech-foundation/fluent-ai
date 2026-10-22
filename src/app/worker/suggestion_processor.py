@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 
 from app.database import AsyncSessionLocal
+from app.errors.exceptions import FluentAIException
 from app.logging.utils import get_logger
 from app.models.job import Job
 
@@ -53,6 +54,7 @@ from app.core.constants import (
     WORKER_POLL_INTERVAL_SECONDS,
     WORKER_MAX_CONSECUTIVE_FAILURES,
     MAX_JOB_RETRIES,
+    MAX_FAILURE_DETAIL_CHARS,
     STALE_PROCESSING_TIMEOUT_MINUTES,
 )
 
@@ -66,6 +68,25 @@ class NonRetryableJobError(Exception):
 
 
 type SourceVerse = dict[str, Any]
+
+
+def _failure_detail(exc: Exception) -> str:
+    """Describe why a job failed, for ai.jobs.error_message.
+
+    Wrapper exceptions only name the failing dependency or step; the
+    underlying cause lives in details["error"] (ExternalServiceException,
+    e.g. Gemini's 402 RESOURCE_EXHAUSTED body) or in __cause__ (e.g. a
+    NonRetryableJobError raised from a ValidationError). Persist both so
+    the row says what failed and why.
+    """
+    detail = str(exc) or type(exc).__name__
+    if isinstance(exc, FluentAIException) and isinstance(exc.details, dict):
+        cause = str(exc.details.get("error") or "")
+    else:
+        cause = str(exc.__cause__ or "")
+    if cause and cause not in detail:
+        detail = f"{detail.rstrip('.')}: {cause}"
+    return detail[:MAX_FAILURE_DETAIL_CHARS]
 
 
 @dataclass(frozen=True)
@@ -397,27 +418,26 @@ async def process_job(
 
         # Retry logic: re-queue if under the retry limit — unless this is a
         # permanent failure that retrying cannot fix.
-        if (
-            not isinstance(e, NonRetryableJobError)
-            and current_retry_count < MAX_JOB_RETRIES
-        ):
+        non_retryable = isinstance(e, NonRetryableJobError)
+        if not non_retryable and current_retry_count < MAX_JOB_RETRIES:
             new_retry_count = current_retry_count + 1
             job.retry_count = new_retry_count
             job.status = "queued"
             job.error_message = (
-                f"Retry {new_retry_count}/{MAX_JOB_RETRIES}: {str(e)[:500]}"
+                f"Retry {new_retry_count}/{MAX_JOB_RETRIES}: {_failure_detail(e)}"
             )
             logger.info(
                 f"Re-queuing job {job_id} (retry {new_retry_count}/{MAX_JOB_RETRIES})"
             )
         else:
+            reason = (
+                "(non-retryable)"
+                if non_retryable
+                else f"after {MAX_JOB_RETRIES} retries"
+            )
             job.status = "failed"
-            job.error_message = (
-                f"Permanently failed after {MAX_JOB_RETRIES} retries: {str(e)[:500]}"
-            )
-            logger.error(
-                f"Job {job_id} permanently failed after {MAX_JOB_RETRIES} retries."
-            )
+            job.error_message = f"Permanently failed {reason}: {_failure_detail(e)}"
+            logger.error(f"Job {job_id} permanently failed {reason}.")
 
         await db.commit()
 
