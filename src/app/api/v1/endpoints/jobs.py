@@ -1,9 +1,14 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.constants import (
+    JOB_STATS_DEFAULT_WINDOW_HOURS,
+    JOB_STATS_MAX_WINDOW_HOURS,
+    JOB_STATS_MIN_WINDOW_HOURS,
+)
 from app.dependencies import get_db, require_api_key
 from app.schemas.jobs import JobStatsResponse
-from app.services.job_stats import get_job_stats
+from app.services.jobs import get_job_stats
 
 router = APIRouter()
 
@@ -15,7 +20,11 @@ router = APIRouter()
     dependencies=[Depends(require_api_key)],
 )
 async def job_stats(
-    window_hours: int = Query(default=24, ge=1, le=720),
+    window_hours: int = Query(
+        default=JOB_STATS_DEFAULT_WINDOW_HOURS,
+        ge=JOB_STATS_MIN_WINDOW_HOURS,
+        le=JOB_STATS_MAX_WINDOW_HOURS,
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> JobStatsResponse:
     """

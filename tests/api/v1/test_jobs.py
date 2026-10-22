@@ -1,5 +1,5 @@
 """
-tests/api/v1/test_job_stats.py — Tests for the GET /jobs/stats endpoint.
+tests/api/v1/test_jobs.py — Tests for the GET /jobs/stats endpoint.
 
 ai.jobs rows are seeded into a real in-memory SQLite session (the same
 pattern as src/tests/test_suggestions_service.py) and the endpoint is

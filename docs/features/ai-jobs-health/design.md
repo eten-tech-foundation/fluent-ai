@@ -51,8 +51,13 @@ curl -s "$FLUENT_AI_URL/jobs/stats?window_hours=24" -H "X-API-Key: $KEY"
   re-trigger resets a failed row to `queued`, see #84).
 - `latest_failure.error_message` goes through `scrub_text`
   (`app/logging/filters.py`), which redacts credential-looking
-  `key=` / `token:` / `Authorization: Bearer …` values. The worker already
-  caps the column at 500 characters.
+  `key=` / `token:` / `Authorization: Bearer …` values. The worker caps the
+  upstream failure detail at 500 characters, plus its own short prefix.
+- The latest failure is a second, `LIMIT 1` query: the counts and ages come
+  from one `GROUP BY status` aggregate, but a message cannot.
+- Like the worker's stale-job reclaim, the window compares the database's
+  naive `now()` timestamps with UTC, so it assumes the Postgres session
+  timezone is UTC.
 - Lifetime counts include everything ever written to the table; there is no
   retention on `ai.jobs` today.
 

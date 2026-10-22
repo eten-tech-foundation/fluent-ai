@@ -36,3 +36,9 @@ MAX_SUGGESTION_BATCH_SIZE = 100
 # Upper bound on the failure detail persisted in ai.jobs.error_message, so a
 # verbose upstream body cannot bloat the jobs table.
 MAX_FAILURE_DETAIL_CHARS = 500
+
+# GET /jobs/stats `recent` window, in hours: the default, and the accepted
+# range for the window_hours query parameter.
+JOB_STATS_DEFAULT_WINDOW_HOURS = 24
+JOB_STATS_MIN_WINDOW_HOURS = 1
+JOB_STATS_MAX_WINDOW_HOURS = 720

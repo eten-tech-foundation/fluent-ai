@@ -17,7 +17,8 @@ async def get_job_stats(db: AsyncSession, window_hours: int) -> JobStatsResponse
     """Read ai.jobs health directly from the table, as a gauge.
 
     updated_at is when a row entered its current status (every transition
-    writes it), so it is the clock for both the window and the ages.
+    writes it), so it is the clock for both the window and the ages. Like
+    reclaim_stale_jobs, this assumes the database's now() is UTC.
     """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     cutoff = now - timedelta(hours=window_hours)
@@ -25,15 +26,15 @@ async def get_job_stats(db: AsyncSession, window_hours: int) -> JobStatsResponse
         await db.execute(
             select(
                 Job.status,
-                func.count(),
-                func.count().filter(Job.updated_at >= cutoff),
-                func.min(Job.updated_at),
+                func.count().label("total"),
+                func.count().filter(Job.updated_at >= cutoff).label("recent"),
+                func.min(Job.updated_at).label("oldest"),
             ).group_by(Job.status)
         )
     ).all()
-    lifetime = {status: total for status, total, _, _ in rows}
-    recent = {status: count for status, _, count, _ in rows}
-    oldest = {status: _as_utc(at) for status, _, _, at in rows}
+    lifetime = {row.status: row.total for row in rows}
+    recent = {row.status: row.recent for row in rows}
+    oldest = {row.status: _as_utc(row.oldest) for row in rows}
 
     latest_failure = None
     if lifetime.get("failed"):
