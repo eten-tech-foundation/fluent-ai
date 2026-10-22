@@ -13,14 +13,10 @@ import pytest
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.constants import MAX_JOB_RETRIES
+from app.core.constants import MAX_FAILURE_DETAIL_CHARS, MAX_JOB_RETRIES
 from app.errors.exceptions import ExternalServiceException
 from app.models.job import Job
-from app.worker.suggestion_processor import (
-    MAX_FAILURE_DETAIL_CHARS,
-    process_job,
-    reclaim_stale_jobs,
-)
+from app.worker.suggestion_processor import process_job, reclaim_stale_jobs
 
 
 @pytest.mark.asyncio
@@ -76,8 +72,6 @@ async def test_process_job_requeues_on_transient_failure_without_raising(
 async def test_process_job_marks_failed_after_max_retries(
     db_session: AsyncSession, make_job
 ):
-    from app.core.constants import MAX_JOB_RETRIES
-
     job = await make_job(retry_count=MAX_JOB_RETRIES)
 
     translation_service = AsyncMock()
@@ -429,18 +423,32 @@ QUOTA_ERROR = (
 )
 
 
-async def _process_with_translation_error(
-    db_session, job, monkeypatch, error: Exception
+async def _process_with_fake_api(
+    db_session,
+    job,
+    monkeypatch,
+    *,
+    context_status: int = 200,
+    translation_error: Exception | None = None,
 ) -> Job:
-    """Run process_job with fluent-api answering normally and translation raising."""
+    """Run process_job against a fake fluent-api whose context call answers
+    with `context_status`, and a translation service raising
+    `translation_error`."""
     translation_service = AsyncMock()
     translation_service.settings.api_base_url = "http://fluent-api:9999"
     translation_service.settings.api_service_key = "test-key"
-    translation_service.translate_verses.side_effect = error
+    translation_service.translate_verses.side_effect = translation_error
 
     class _FakeContextResponse:
+        status_code = context_status
+
         def raise_for_status(self):
-            pass
+            if self.status_code >= 400:
+                raise httpx.HTTPStatusError(
+                    "Unauthorized",
+                    request=httpx.Request("POST", "http://x"),
+                    response=self,
+                )
 
         def json(self):
             return {
@@ -471,8 +479,8 @@ async def test_retry_message_carries_external_service_detail(
 ):
     job = await make_job(retry_count=0)
 
-    job = await _process_with_translation_error(
-        db_session, job, monkeypatch, _gemini_error(QUOTA_ERROR)
+    job = await _process_with_fake_api(
+        db_session, job, monkeypatch, translation_error=_gemini_error(QUOTA_ERROR)
     )
 
     assert job.status == "queued"
@@ -486,8 +494,8 @@ async def test_permanent_failure_message_carries_external_service_detail(
 ):
     job = await make_job(retry_count=MAX_JOB_RETRIES)
 
-    job = await _process_with_translation_error(
-        db_session, job, monkeypatch, _gemini_error(QUOTA_ERROR)
+    job = await _process_with_fake_api(
+        db_session, job, monkeypatch, translation_error=_gemini_error(QUOTA_ERROR)
     )
 
     assert job.status == "failed"
@@ -502,8 +510,8 @@ async def test_permanent_failure_message_falls_back_to_exception_text(
 ):
     job = await make_job(retry_count=MAX_JOB_RETRIES)
 
-    job = await _process_with_translation_error(
-        db_session, job, monkeypatch, RuntimeError("LLM boom")
+    job = await _process_with_fake_api(
+        db_session, job, monkeypatch, translation_error=RuntimeError("LLM boom")
     )
 
     assert job.error_message == (
@@ -516,8 +524,8 @@ async def test_failure_message_names_exception_type_when_it_has_no_text(
 ):
     job = await make_job(retry_count=0)
 
-    job = await _process_with_translation_error(
-        db_session, job, monkeypatch, httpx.ReadTimeout("")
+    job = await _process_with_fake_api(
+        db_session, job, monkeypatch, translation_error=httpx.ReadTimeout("")
     )
 
     assert job.error_message == f"Retry 1/{MAX_JOB_RETRIES}: ReadTimeout"
@@ -526,8 +534,8 @@ async def test_failure_message_names_exception_type_when_it_has_no_text(
 async def test_failure_detail_is_capped(db_session, make_job, monkeypatch):
     job = await make_job(retry_count=0)
 
-    job = await _process_with_translation_error(
-        db_session, job, monkeypatch, _gemini_error("x" * 10_000)
+    job = await _process_with_fake_api(
+        db_session, job, monkeypatch, translation_error=_gemini_error("x" * 10_000)
     )
 
     assert len(job.error_message) == (
@@ -540,24 +548,7 @@ async def test_non_retryable_failure_is_labelled_as_such(
 ):
     job = await make_job(retry_count=0)
 
-    class _FakeResponse:
-        status_code = 401
-
-        def raise_for_status(self):
-            raise httpx.HTTPStatusError(
-                "Unauthorized",
-                request=httpx.Request("POST", "http://x"),
-                response=self,
-            )
-
-    async def _fake_post(self, *args, **kwargs):
-        return _FakeResponse()
-
-    monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
-    translation_service = AsyncMock()
-    translation_service.settings.api_base_url = "http://fluent-api:9999"
-    await process_job(db_session, job, translation_service)
-    await db_session.refresh(job)
+    job = await _process_with_fake_api(db_session, job, monkeypatch, context_status=401)
 
     assert job.status == "failed"
     assert job.error_message == (

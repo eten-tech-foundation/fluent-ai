@@ -32,3 +32,7 @@ STALE_PROCESSING_TIMEOUT_MINUTES = 15
 # POST /suggestions call. Prevents an unbounded batch from enqueueing an
 # arbitrarily large number of jobs in one request.
 MAX_SUGGESTION_BATCH_SIZE = 100
+
+# Upper bound on the failure detail persisted in ai.jobs.error_message, so a
+# verbose upstream body cannot bloat the jobs table.
+MAX_FAILURE_DETAIL_CHARS = 500

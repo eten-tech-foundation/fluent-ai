@@ -54,6 +54,7 @@ from app.core.constants import (
     WORKER_POLL_INTERVAL_SECONDS,
     WORKER_MAX_CONSECUTIVE_FAILURES,
     MAX_JOB_RETRIES,
+    MAX_FAILURE_DETAIL_CHARS,
     STALE_PROCESSING_TIMEOUT_MINUTES,
 )
 
@@ -67,10 +68,6 @@ class NonRetryableJobError(Exception):
 
 
 type SourceVerse = dict[str, Any]
-
-# Upper bound on the failure detail persisted in ai.jobs.error_message, so a
-# verbose upstream body cannot bloat the jobs table.
-MAX_FAILURE_DETAIL_CHARS = 500
 
 
 def _failure_detail(exc: Exception) -> str:
@@ -421,10 +418,8 @@ async def process_job(
 
         # Retry logic: re-queue if under the retry limit — unless this is a
         # permanent failure that retrying cannot fix.
-        if (
-            not isinstance(e, NonRetryableJobError)
-            and current_retry_count < MAX_JOB_RETRIES
-        ):
+        non_retryable = isinstance(e, NonRetryableJobError)
+        if not non_retryable and current_retry_count < MAX_JOB_RETRIES:
             new_retry_count = current_retry_count + 1
             job.retry_count = new_retry_count
             job.status = "queued"
@@ -437,7 +432,7 @@ async def process_job(
         else:
             reason = (
                 "(non-retryable)"
-                if isinstance(e, NonRetryableJobError)
+                if non_retryable
                 else f"after {MAX_JOB_RETRIES} retries"
             )
             job.status = "failed"
