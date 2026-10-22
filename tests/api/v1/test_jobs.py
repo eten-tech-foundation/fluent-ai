@@ -290,3 +290,28 @@ async def test_unknown_api_key_is_rejected(api):
         response = await api.get("/jobs/stats", headers={"X-API-Key": "fai_unknown"})
 
     assert response.status_code == 401
+
+
+async def test_latest_failure_does_not_echo_payload_values(authed_api, db_session):
+    # A NonRetryableJobError raised from a pydantic ValidationError persists
+    # the validator's rendering, which quotes the offending input.
+    await _seed(
+        db_session,
+        "failed",
+        error_message=(
+            "Permanently failed (non-retryable): Invalid section heading context: "
+            "1 validation error for SectionHeadingContext\nsourceTitle\n  Input "
+            "should be a valid string [type=string_type, input_value=['In the "
+            "beginning', 'God created'], input_type=list]"
+        ),
+    )
+
+    response = await authed_api.get("/jobs/stats")
+
+    message = response.json()["latest_failure"]["error_message"]
+    assert "In the beginning" not in message
+    assert "God created" not in message
+    assert "input_value=[REDACTED], input_type=list" in message
+    assert message.startswith(
+        "Permanently failed (non-retryable): Invalid section heading context"
+    )

@@ -51,13 +51,21 @@ curl -s "$FLUENT_AI_URL/jobs/stats?window_hours=24" -H "X-API-Key: $KEY"
   re-trigger resets a failed row to `queued`, see #84).
 - `latest_failure.error_message` goes through `scrub_text`
   (`app/logging/filters.py`), which redacts credential-looking
-  `key=` / `token:` / `Authorization: Bearer …` values. The worker caps the
-  upstream failure detail at 500 characters, plus its own short prefix.
+  `key=` / `client_secret=` / `accessToken:` / `Authorization: Bearer …`
+  values. It also redacts pydantic's `input_value=…`: a job failed by payload or
+  context validation persists the validator's rendering, which quotes the
+  offending input and could otherwise echo verse text. Other free-text
+  echoes of payload values are not detected. The worker caps the upstream
+  failure detail at 500 characters, plus its own short prefix.
 - The latest failure is a second, `LIMIT 1` query: the counts and ages come
   from one `GROUP BY status` aggregate, but a message cannot.
 - Like the worker's stale-job reclaim, the window compares the database's
   naive `now()` timestamps with UTC, so it assumes the Postgres session
   timezone is UTC.
+- `updated_at` means "entered current status" only by convention: the
+  column's `onupdate` fires on every UPDATE, and today every UPDATE is a status
+  transition. A future write that leaves `status` alone would skew `recent`
+  and the `oldest_*` ages (noted on the model column).
 - Lifetime counts include everything ever written to the table; there is no
   retention on `ai.jobs` today.
 
@@ -84,7 +92,9 @@ curl -s "$FLUENT_AI_URL/jobs/stats?window_hours=24" -H "X-API-Key: $KEY"
 The worker writes one `ERROR` line per terminal failure:
 `Job <id> permanently failed (non-retryable).` or
 `Job <id> permanently failed after 3 retries.` Both QA outage windows went
-through this path.
+through this path. The rule does not filter on task type, on purpose: today
+every job is `ai_suggestion`, so this matches the issue's "`ai_suggestion`
+failures". Any task type added later fails the same way and should page too.
 
 ```kusto
 AppServiceConsoleLogs
@@ -103,6 +113,10 @@ the environment's approved action group; choosing one is the environment
 owner's call.
 
 ### Why not the alternatives
+
+The issue framed two candidates. Step 1 is a third, deliberate option: it
+keeps the first candidate's log-based scheduled-query rule but replaces its
+exporter with a diagnostic setting.
 
 - **Azure Monitor OpenTelemetry exporter into Application Insights.** This
   adds a dependency and startup wiring to get `customDimensions`. Today's log

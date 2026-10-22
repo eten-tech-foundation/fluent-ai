@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 from app.config import Settings
 from app.logging.config import configure_logging
-from app.logging.filters import SensitiveDataFilter, scrub_dict, scrub_url
+from app.logging.filters import SensitiveDataFilter, scrub_dict, scrub_text, scrub_url
 from app.logging.formatters import DevFormatter, JsonFormatter
 from app.logging.utils import StructuredLogger, get_logger
 
@@ -185,6 +185,20 @@ class TestSensitiveDataRedaction:
         url = "https://api.example.com/data?page=1&limit=10"
         result = scrub_url(url)
         assert result == url
+
+    def test_scrub_text_redacts_compound_key_names(self):
+        text = (
+            "client_secret=cs_1 x-goog-api-key: gk_2 accessToken=at_3 "
+            "refresh-token=rt_4"
+        )
+        result = scrub_text(text)
+        for secret in ("cs_1", "gk_2", "at_3", "rt_4"):
+            assert secret not in result
+        assert result.startswith("client_secret=[REDACTED]")
+
+    def test_scrub_text_leaves_non_credential_keys_alone(self):
+        text = "dedup_key=ai_suggestion:1:2 monkey=banana keyword=verse"
+        assert scrub_text(text) == text
 
     def test_sensitive_data_filter_scrubs_record(self):
         """SensitiveDataFilter should scrub _structured dict on a log record."""

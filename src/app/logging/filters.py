@@ -47,15 +47,29 @@ _EMAIL_RE = re.compile(r"^([^@]+)(@.+)$")
 # A credential value embedded in free text ends at whitespace, a quote, or the
 # punctuation that delimits it in URLs, headers and exception reprs.
 _TEXT_VALUE = r"[^\s\"'&;,)]+"
-_SENSITIVE_TEXT_ASSIGNMENT_RE = re.compile(
-    r"\b("
-    + "|".join(
-        re.escape(name)
-        for name in sorted(
-            _SENSITIVE_KEYS | _SENSITIVE_QUERY_PARAMS, key=len, reverse=True
-        )
+# Names too generic to match as the tail of a longer identifier: `dedup_key`
+# or `monkey` must not count as a `key`.
+_EXACT_TEXT_NAMES: frozenset[str] = frozenset({"key", "ssn"})
+
+
+def _text_name_pattern(names: frozenset[str]) -> str:
+    # Separators are optional and interchangeable, so `api_key` also matches
+    # `api-key` and `apiKey`.
+    return "|".join(
+        re.sub(r"[_-]", "[_-]?", re.escape(name))
+        for name in sorted(names, key=len, reverse=True)
     )
-    + r")([\"']?\s*[:=]\s*[\"']?)((?:bearer|basic)\s+)?"
+
+
+_SENSITIVE_TEXT_NAMES = _SENSITIVE_KEYS | _SENSITIVE_QUERY_PARAMS
+_SENSITIVE_TEXT_ASSIGNMENT_RE = re.compile(
+    # A credential name may carry any identifier prefix (`client_secret`,
+    # `x-goog-api-key`), except the generic exact names.
+    r"\b((?:[\w-]*?(?:"
+    + _text_name_pattern(_SENSITIVE_TEXT_NAMES - _EXACT_TEXT_NAMES)
+    + r"))|(?:"
+    + _text_name_pattern(_EXACT_TEXT_NAMES)
+    + r"))([\"']?\s*[:=]\s*[\"']?)((?:bearer|basic)\s+)?"
     + _TEXT_VALUE,
     re.IGNORECASE,
 )

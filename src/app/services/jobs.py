@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
@@ -7,10 +8,21 @@ from app.logging.filters import scrub_text
 from app.models.job import Job
 from app.schemas.jobs import JobStatsResponse, JobStatusCounts, LatestJobFailure
 
+# A pydantic ValidationError's rendering quotes the offending input
+# (`input_value=..., input_type=...`). A job failed by payload or context
+# validation persists it in error_message, so it can hold payload values.
+_PYDANTIC_INPUT_VALUE_RE = re.compile(
+    r"input_value=.*?(?=, input_type=)|input_value=.*$", re.MULTILINE
+)
+
 
 def _as_utc(value: datetime | None) -> datetime | None:
     # ai.jobs stores naive UTC; tag it so the response carries an offset.
     return value.replace(tzinfo=timezone.utc) if value is not None else None
+
+
+def _redact_error_message(message: str) -> str:
+    return scrub_text(_PYDANTIC_INPUT_VALUE_RE.sub("input_value=[REDACTED]", message))
 
 
 async def get_job_stats(db: AsyncSession, window_hours: int) -> JobStatsResponse:
@@ -36,21 +48,23 @@ async def get_job_stats(db: AsyncSession, window_hours: int) -> JobStatsResponse
     recent = {row.status: row.recent for row in rows}
     oldest = {row.status: _as_utc(row.oldest) for row in rows}
 
+    # Not gated on lifetime["failed"]: a re-trigger can requeue the last
+    # failure between the two statements, so an empty result must be normal.
+    failure = (
+        await db.execute(
+            select(Job.updated_at, Job.task_type, Job.error_message)
+            .where(Job.status == "failed")
+            .order_by(Job.updated_at.desc().nulls_last(), Job.id.desc())
+            .limit(1)
+        )
+    ).one_or_none()
     latest_failure = None
-    if lifetime.get("failed"):
-        failure = (
-            await db.execute(
-                select(Job.updated_at, Job.task_type, Job.error_message)
-                .where(Job.status == "failed")
-                .order_by(Job.updated_at.desc().nulls_last(), Job.id.desc())
-                .limit(1)
-            )
-        ).one()
+    if failure is not None:
         latest_failure = LatestJobFailure(
             failed_at=_as_utc(failure.updated_at),
             task_type=failure.task_type,
             error_message=(
-                scrub_text(failure.error_message)
+                _redact_error_message(failure.error_message)
                 if failure.error_message is not None
                 else None
             ),
