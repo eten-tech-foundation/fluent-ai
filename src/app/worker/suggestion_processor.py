@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 
 from app.database import AsyncSessionLocal
+from app.errors.exceptions import FluentAIException
 from app.logging.utils import get_logger
 from app.models.job import Job
 
@@ -75,16 +76,19 @@ MAX_FAILURE_DETAIL_CHARS = 500
 def _failure_detail(exc: Exception) -> str:
     """Describe why a job failed, for ai.jobs.error_message.
 
-    Wrapper exceptions such as ExternalServiceException keep the upstream
-    cause (e.g. Gemini's 402 RESOURCE_EXHAUSTED body) in details["error"],
-    while their message only names the dependency. Persist both so the row
-    says which dependency failed and why.
+    Wrapper exceptions only name the failing dependency or step; the
+    underlying cause lives in details["error"] (ExternalServiceException,
+    e.g. Gemini's 402 RESOURCE_EXHAUSTED body) or in __cause__ (e.g. a
+    NonRetryableJobError raised from a ValidationError). Persist both so
+    the row says what failed and why.
     """
-    details = getattr(exc, "details", None)
-    if isinstance(details, dict) and details.get("error"):
-        detail = f"{exc} {details['error']}"
+    detail = str(exc) or type(exc).__name__
+    if isinstance(exc, FluentAIException) and isinstance(exc.details, dict):
+        cause = str(exc.details.get("error") or "")
     else:
-        detail = str(exc) or type(exc).__name__
+        cause = str(exc.__cause__ or "")
+    if cause and cause not in detail:
+        detail = f"{detail.rstrip('.')}: {cause}"
     return detail[:MAX_FAILURE_DETAIL_CHARS]
 
 
@@ -430,21 +434,15 @@ async def process_job(
             logger.info(
                 f"Re-queuing job {job_id} (retry {new_retry_count}/{MAX_JOB_RETRIES})"
             )
-        elif isinstance(e, NonRetryableJobError):
-            job.status = "failed"
-            job.error_message = (
-                f"Permanently failed (non-retryable): {_failure_detail(e)}"
-            )
-            logger.error(f"Job {job_id} permanently failed (non-retryable).")
         else:
+            reason = (
+                "(non-retryable)"
+                if isinstance(e, NonRetryableJobError)
+                else f"after {MAX_JOB_RETRIES} retries"
+            )
             job.status = "failed"
-            job.error_message = (
-                f"Permanently failed after {MAX_JOB_RETRIES} retries: "
-                f"{_failure_detail(e)}"
-            )
-            logger.error(
-                f"Job {job_id} permanently failed after {MAX_JOB_RETRIES} retries."
-            )
+            job.error_message = f"Permanently failed {reason}: {_failure_detail(e)}"
+            logger.error(f"Job {job_id} permanently failed {reason}.")
 
         await db.commit()
 

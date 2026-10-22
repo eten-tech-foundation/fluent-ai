@@ -3,6 +3,7 @@ tests/test_suggestions_service.py — Tests for enqueue_suggestion_jobs'
 dedup-aware response reporting.
 """
 
+import asyncio
 from datetime import datetime, timezone
 
 import pytest
@@ -256,33 +257,25 @@ async def test_heading_jobs_keep_separate_dedup_identity_and_persist_metadata(
     assert jobs[1].payload["pericopeSetId"] == 7
 
 
-async def _set_status(db_session, verse_start: int, **values) -> None:
-    job = (
-        await db_session.execute(
-            select(Job).where(
-                Job.dedup_key == f"ai_suggestion:1:1:MAT:1:{verse_start}:{verse_start}"
-            )
-        )
+async def _job(db_session, verse_start: int) -> Job:
+    """Fresh state of the job enqueued for _request(verse_start)."""
+    db_session.expire_all()
+    dedup_key = f"ai_suggestion:1:1:MAT:1:{verse_start}:{verse_start}"
+    return (
+        await db_session.execute(select(Job).where(Job.dedup_key == dedup_key))
     ).scalar_one()
+
+
+async def _update_job(db_session, verse_start: int, **values) -> None:
+    job = await _job(db_session, verse_start)
     for name, value in values.items():
         setattr(job, name, value)
     await db_session.commit()
 
 
-async def _job(db_session, verse_start: int) -> Job:
-    db_session.expire_all()
-    return (
-        await db_session.execute(
-            select(Job).where(
-                Job.dedup_key == f"ai_suggestion:1:1:MAT:1:{verse_start}:{verse_start}"
-            )
-        )
-    ).scalar_one()
-
-
 async def test_retrigger_of_failed_job_requeues_it(db_session):
     await enqueue_suggestion_jobs(db_session, [_request(1)])
-    await _set_status(
+    await _update_job(
         db_session,
         1,
         status="failed",
@@ -303,7 +296,7 @@ async def test_retrigger_of_failed_job_requeues_it(db_session):
 @pytest.mark.parametrize("status", ["queued", "processing", "completed"])
 async def test_retrigger_of_unfailed_job_is_skipped_untouched(db_session, status):
     await enqueue_suggestion_jobs(db_session, [_request(1)])
-    await _set_status(
+    await _update_job(
         db_session, 1, status=status, retry_count=2, error_message="Retry 2/3: boom"
     )
 
@@ -318,9 +311,9 @@ async def test_retrigger_of_unfailed_job_is_skipped_untouched(db_session, status
 
 async def test_mixed_batch_reports_each_bucket(db_session):
     await enqueue_suggestion_jobs(db_session, [_request(1), _request(2), _request(3)])
-    await _set_status(db_session, 1, status="failed", retry_count=3)
-    await _set_status(db_session, 2, status="failed", retry_count=3)
-    await _set_status(db_session, 3, status="completed")
+    await _update_job(db_session, 1, status="failed", retry_count=3)
+    await _update_job(db_session, 2, status="failed", retry_count=3)
+    await _update_job(db_session, 3, status="completed")
 
     requests = [_request(1), _request(2), _request(3), _request(4)]
     response = await enqueue_suggestion_jobs(db_session, requests)
@@ -330,3 +323,24 @@ async def test_mixed_batch_reports_each_bucket(db_session):
     assert response.message == (
         "Queued 1 of 4 jobs (2 failed jobs requeued, 1 duplicate skipped)"
     )
+
+
+async def test_retrigger_listing_a_failed_job_twice_requeues_it_once(db_session):
+    await enqueue_suggestion_jobs(db_session, [_request(1)])
+    await _update_job(db_session, 1, status="failed", retry_count=3)
+
+    response = await enqueue_suggestion_jobs(db_session, [_request(1), _request(1)])
+
+    assert (response.queued, response.requeued, response.skipped) == (0, 1, 1)
+    assert (await _job(db_session, 1)).status == "queued"
+
+
+async def test_requeue_refreshes_updated_at(db_session):
+    await enqueue_suggestion_jobs(db_session, [_request(1)])
+    await _update_job(db_session, 1, status="failed")
+    failed_at = (await _job(db_session, 1)).updated_at
+
+    await asyncio.sleep(1.01)  # now() has ~1s resolution here
+    await enqueue_suggestion_jobs(db_session, [_request(1)])
+
+    assert (await _job(db_session, 1)).updated_at > failed_at

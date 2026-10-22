@@ -16,7 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.constants import MAX_JOB_RETRIES
 from app.errors.exceptions import ExternalServiceException
 from app.models.job import Job
-from app.worker.suggestion_processor import process_job, reclaim_stale_jobs
+from app.worker.suggestion_processor import (
+    MAX_FAILURE_DETAIL_CHARS,
+    process_job,
+    reclaim_stale_jobs,
+)
 
 
 @pytest.mark.asyncio
@@ -472,9 +476,9 @@ async def test_retry_message_carries_external_service_detail(
     )
 
     assert job.status == "queued"
-    assert job.error_message.startswith(f"Retry 1/{MAX_JOB_RETRIES}: ")
-    assert "Google Gemini API request failed." in job.error_message
-    assert "Your prepayment credits are depleted." in job.error_message
+    assert job.error_message == (
+        f"Retry 1/{MAX_JOB_RETRIES}: Google Gemini API request failed: {QUOTA_ERROR}"
+    )
 
 
 async def test_permanent_failure_message_carries_external_service_detail(
@@ -526,7 +530,9 @@ async def test_failure_detail_is_capped(db_session, make_job, monkeypatch):
         db_session, job, monkeypatch, _gemini_error("x" * 10_000)
     )
 
-    assert len(job.error_message) <= len(f"Retry 1/{MAX_JOB_RETRIES}: ") + 500
+    assert len(job.error_message) == (
+        len(f"Retry 1/{MAX_JOB_RETRIES}: ") + MAX_FAILURE_DETAIL_CHARS
+    )
 
 
 async def test_non_retryable_failure_is_labelled_as_such(
@@ -558,3 +564,16 @@ async def test_non_retryable_failure_is_labelled_as_such(
         "Permanently failed (non-retryable): fluent-api rejected context "
         "request with 401: Unauthorized"
     )
+
+
+async def test_invalid_payload_failure_carries_validation_cause(db_session, make_job):
+    job = await make_job(retry_count=0, payload={"projectUnitId": "not-a-number"})
+
+    await process_job(db_session, job, AsyncMock())
+    await db_session.refresh(job)
+
+    assert job.status == "failed"
+    assert job.error_message.startswith(
+        "Permanently failed (non-retryable): Invalid suggestion job payload: "
+    )
+    assert "projectUnitId" in job.error_message
