@@ -2,7 +2,7 @@
 logging/filters.py — Scrub sensitive data and inject request context.
 
 Contains:
-  - Data sanitisation helpers (scrub_dict, scrub_url, mask_email)
+  - Data sanitisation helpers (scrub_dict, scrub_url, scrub_text, mask_email)
   - RequestContextFilter  — injects request_id / correlation_id into records
   - SensitiveDataFilter   — scrubs _structured dict on every record
 """
@@ -44,6 +44,25 @@ _SENSITIVE_QUERY_PARAMS: frozenset[str] = frozenset(
 
 _EMAIL_RE = re.compile(r"^([^@]+)(@.+)$")
 
+# A credential value embedded in free text ends at whitespace, a quote, or the
+# punctuation that delimits it in URLs, headers and exception reprs.
+_TEXT_VALUE = r"[^\s\"'&;,)]+"
+_SENSITIVE_TEXT_ASSIGNMENT_RE = re.compile(
+    r"\b("
+    + "|".join(
+        re.escape(name)
+        for name in sorted(
+            _SENSITIVE_KEYS | _SENSITIVE_QUERY_PARAMS, key=len, reverse=True
+        )
+    )
+    + r")([\"']?\s*[:=]\s*[\"']?)((?:bearer|basic)\s+)?"
+    + _TEXT_VALUE,
+    re.IGNORECASE,
+)
+_BEARER_TOKEN_RE = re.compile(
+    r"\b(bearer|basic)\s+(?!\[REDACTED\])" + _TEXT_VALUE, re.IGNORECASE
+)
+
 
 # --------------------------------------------------------------------------- #
 # Data sanitisation helpers
@@ -81,6 +100,15 @@ def scrub_url(url: str) -> str:
         return urllib.parse.urlunparse(new_parsed)
     except Exception:
         return url
+
+
+def scrub_text(text: str) -> str:
+    """Redact credential-looking `name=value` / `name: value` pairs and bearer
+    tokens in free text, such as an upstream error message."""
+    text = _SENSITIVE_TEXT_ASSIGNMENT_RE.sub(
+        lambda m: f"{m.group(1)}{m.group(2)}{m.group(3) or ''}[REDACTED]", text
+    )
+    return _BEARER_TOKEN_RE.sub(lambda m: f"{m.group(1)} [REDACTED]", text)
 
 
 def mask_email(email: str) -> str:
