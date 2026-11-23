@@ -1,5 +1,7 @@
 # Greek-Room Integration — Architecture Review Summary
 
+> Moved here from the repo root in [#91](https://github.com/eten-tech-foundation/fluent-ai/issues/91). This is the record of how the integration was designed. What the code holds today is in [domain-rules.md](../../domain-rules.md#greek-room), and some details here are out of date.
+
 **Purpose:** Seeking high-level approval on the architectural approach before detailed design review.
 
 ## What's being proposed

@@ -366,10 +366,10 @@ with the user.
   the `github-actions` ecosystem; if a `pip`/`uv` ecosystem entry is added later, this
   workflow already covers it via the risky/safe categorization above).
 - CI: [`.github/workflows/pre-merge.yml`](../../.github/workflows/pre-merge.yml)
-- Container/runtime commands: [`AGENTS.md`](../../AGENTS.md), [`fai.sh`](../../fai.sh)
-- Database ownership model: `AGENTS.md` → "Database Ownership" (this service owns only
-  the `ai` schema; migrations run against the ephemeral DB never touch `public`,
-  `pgboss`, or `drizzle`).
+- Container/runtime commands: the [`README`](../../README.md#commands), [`fai.sh`](../../fai.sh)
+- Database ownership model: [Data ownership](../domain-rules.md#data-ownership) in the
+  domain rules (this service owns only the `ai` schema; migrations run against the
+  ephemeral DB never touch `public`, `pgboss`, or `drizzle`).
 - SHA-pinning policy: see [SHA pinning for GitHub Actions](#sha-pinning-for-github-actions)
   above. All `uses:` declarations under `.github/workflows/*` are pinned to full 40-char
   commit SHAs (with the tag carried in a trailing comment). Dependabot's `github-actions`

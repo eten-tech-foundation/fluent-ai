@@ -1,5 +1,7 @@
 # Greek-Room Integration — Decisions Addendum
 
+> Moved here from the repo root in [#91](https://github.com/eten-tech-foundation/fluent-ai/issues/91). This is the record of how the integration was designed. What the code holds today is in [domain-rules.md](../../domain-rules.md#greek-room), and some details here are out of date.
+
 **Companion to:** [`greek-room-integration-suggestion.md`](greek-room-integration-suggestion.md)
 
 **Purpose:** Capture the concrete decisions made on top of the architecture pitch as the implementation progresses. This document is a living record — it grows as further questions are resolved. The original pitch document is left unchanged so the "as-proposed" state is preserved.
@@ -108,7 +110,7 @@ Any active, non-expired API key may call `POST /tools/greek-room/repeated-words`
 ### D10 — Greek-room API verification: **Use `get_feedback()` helper, sketch is mostly accurate**
 *Refines §13.3.*
 
-The greek-room source in [`greek-room/greekroom/greekroom/owl/repeated_words.py`](greek-room/greekroom/greekroom/owl/repeated_words.py:1) was inspected directly before writing the service. Confirmed:
+The greek-room source in `greekroom/owl/repeated_words.py` ([greek-room](https://github.com/BibleNLP/greek-room), 0.0.20) was inspected directly before writing the service. Confirmed:
 
 | Function | Signature | Notes |
 |----------|-----------|-------|
@@ -135,7 +137,7 @@ If the install needs to happen inside the container (because the container's vol
 ### D12 — Test execution model: **In-container `TestClient`, no real HTTP**
 *Documents the existing project pattern as it applies to our PR.*
 
-The three tests from D8 run via `./fai.sh test`, which executes `uv run pytest tests/ -v` **inside** the `fluent-ai-ai` container (see [`fai.sh:458-460`](fluent-ai/fai.sh:458)). They use FastAPI's `TestClient` (per [`tests/conftest.py`](fluent-ai/tests/conftest.py:1)), which constructs the app in-process and dispatches ASGI calls directly — no real HTTP socket is opened. Auth is overridden via `app.dependency_overrides[require_api_key]`, matching the established pattern in [`tests/api/v1/test_api_keys.py`](fluent-ai/tests/api/v1/test_api_keys.py:1).
+The three tests from D8 run via `./fai.sh test`, which executes `uv run pytest tests/ -v` **inside** the `fluent-ai-ai` container (see [`fai.sh`](../../../fai.sh)). They use FastAPI's `TestClient` (per [`tests/conftest.py`](../../../tests/conftest.py)), which constructs the app in-process and dispatches ASGI calls directly — no real HTTP socket is opened. Auth is overridden via `app.dependency_overrides[require_api_key]`, matching the established pattern in [`tests/api/v1/test_api_keys.py`](../../../tests/api/v1/test_api_keys.py).
 
 **External HTTP smoke testing** (a Python script on the host hitting `http://localhost:8200/...`) remains available informally because the container exposes port 8200, but no formal smoke-test harness is added in this PR.
 
