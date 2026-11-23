@@ -133,8 +133,9 @@ ENTRYPOINT ["dumb-init", "--"]
 # so a deploy that catches a clip mid-generation can spend up to this long still
 # synthesizing. See SHUTDOWN_GRACE_SECONDS in services/tts/generation.py.
 #
-# Database migrations and seeds are run out-of-band by CI/CD, NOT on container
-# start. See AGENTS.md §Database Ownership and your deploy pipeline.
+# Database migrations run out-of-band, in the deploy workflow before the new
+# image goes live, NOT on container start, and deploys don't run the seeds. See
+# docs/architecture.md and .github/workflows/deploy.yml.
 CMD ["uvicorn", "app.main:app", \
      "--host", "0.0.0.0", "--port", "8200", \
      "--proxy-headers", \

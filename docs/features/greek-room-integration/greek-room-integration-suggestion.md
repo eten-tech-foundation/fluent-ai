@@ -1,5 +1,7 @@
 # Architecture Pitch — Bible Translation Tools in Fluent-AI
 
+> Moved here from the repo root in [#91](https://github.com/eten-tech-foundation/fluent-ai/issues/91). This is the record of how the integration was designed. What the code holds today is in [domain-rules.md](../../domain-rules.md#greek-room), and some details here are out of date.
+
 **Subject:** Wrapping Greek-Room (starting with the *Repeated Words* check) inside the Fluent-AI FastAPI service, in a way that establishes the platform's reusable pattern for all future AI-tool integrations.
 
 **Status:** Draft for architectural approval. No code has been written; this document captures the design decisions that should be locked in before implementation begins.
